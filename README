@@ -1,0 +1,31 @@
+= Instruction =
+
+1. install some ruby libraries
+ - openssl
+ - json
+ - prowl (rubygems)
+
+2. setup config.yml
+
+3. run twitprowl
+
+
+= config.yml =
+
+Prowl:
+ APIKey: <the Prowl API Key>
+
+Accounts:
+ -
+  Application: <application name (optional)> 
+  User: <Twitter username>
+  Pass: <Twitter Password>
+  Mentions: <true|false> # Mentions
+  MentionsCount: <limit to get new mentions (int)>
+  MentionsInterval: <check interval (min)>
+  Direct: <true|false> # Direct Message
+  DirectCount: <limit to get new DirectMessage (int)>
+  DirectInterval: <check interval (min)>
+  Debug: <true|false> # debug outputs
+ - 
+  <Other account config here>

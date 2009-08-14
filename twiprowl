@@ -1,0 +1,122 @@
+#!/usr/bin/ruby
+
+require 'rubygems'
+require 'thread'
+require 'net/http'
+require 'net/https'
+require 'prowl'
+require 'json'
+require 'uri'
+require 'yaml'
+
+class TwiProwl
+  
+  MENTIONS = "https://twitter.com/statuses/mentions.json?"
+  DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
+
+  def debug_puts(str)
+    return unless @config['Debug']
+    puts @config['Application'] + ": " + str
+  end
+
+  def initialize(config, api_key)
+    @config = config
+    @api_key = api_key
+    @config['Application'] = "Twitter" unless @config.has_key?('Application')
+    @config['MentionsCount'] = 10 unless @config.has_key?('MentionsCount')
+    @config['MentionsInterval'] = 5 unless @config.has_key?('MentionsInterval')
+    @config['DirectCount'] = 10 unless @config.has_key?('DirectCount')
+    @config['DirectInterval'] = 10 unless @config.has_key?('DirectInterval')
+  end
+
+  def check(reqstr, lastid, count)
+    if lastid > 0
+      reqstr += "since_id=#{lastid}"
+      reqstr += "&count=#{count}"
+    else
+      reqstr += "count=1"
+    end
+    debug_puts "Check #{reqstr}"
+    uri = URI.parse(reqstr)
+    http = Net::HTTP::new(uri.host, uri.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE 
+    req = Net::HTTP::Get.new(uri.request_uri)
+    req.basic_auth(@config['User'], @config['Pass'])
+    res = http.request(req)
+    if res.code == "200"
+      json = JSON::parse(res.body)
+      json.reverse.each do |obj|
+        string = ""
+        if obj.has_key?('sender_screen_name')
+          string = "Direct: " + obj['sender_screen_name']
+        else
+          string = "Mentions: " + obj['user']['screen_name']
+        end
+        text = obj['text']
+        if lastid < 0
+          lastid = obj['id']
+          debug_puts "last id = #{lastid}"
+        else
+          debug_puts "Prowling: %s %s" % [ string, text ]
+          Prowl.send( @api_key, 
+                      :application=>@config['Application'],
+                      :event => string,
+                      :description => text )
+          sleep 2 # Prowling delay is required maybe
+        end
+      end
+    else
+      debug_puts "HTTP CODE: #{res.code}"
+    end
+    return lastid
+  end
+
+  def run
+    debug_puts "Start"
+    t1 = nil
+    t2 = nil
+    if @config['Mentions']
+      t1 = Thread.new do
+        last_id = -1
+        loop do
+          begin
+            last_id = 
+              check(MENTIONS, last_id, @config['MentionsCount'])
+          rescue
+            debug_puts "MentionsError: " + $!.to_s
+          end
+          debug_puts "Mentions sleep: #{@config['MentionsInterval']} mins"
+          sleep @config['MentionsInterval'] * 60
+        end
+      end
+    end
+    if @config['Direct']
+      t2 = Thread.new do 
+        last_id = -1
+        loop do
+          begin
+            last_id = check(DIRECT_MESSAGES, last_id, @config['DirectCount'])
+          rescue
+            debug_puts "DirectError: " + $!.to_s
+          end
+          debug_puts "Direct sleep: #{@config['DirectInterval']} mins"
+          sleep @config['DirectInterval'] * 60
+        end
+      end
+    end
+  end
+
+end
+
+config = YAML.load_file('config.yml')
+api_key = config['Prowl']['APIKey']
+accounts = Array.new
+config['Accounts'].each do |account|
+  ac = TwiProwl.new(account, api_key)
+  ac.run
+end
+
+while true
+  sleep 6000
+end

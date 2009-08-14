@@ -1,0 +1,14 @@
+Prowl:
+ APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+Accounts:
+ -
+  User: gonbe
+  Pass: himitsu
+  Mentions: true
+  MentionsCount: 10
+  MentionsInterval: 5
+  Direct: true
+  DirectCount: 10
+  DirectInterval: 10
+  Debug: true
