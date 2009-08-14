@@ -1,5 +1,12 @@
 #!/usr/bin/ruby
-
+#
+# TwiProwl - Twitter Notification Script with Prowl.
+# Version: 0.1
+#
+# Copyright (c) 2009 Takuo Kitame.
+#
+# You can redistribute it and/or modify it under the same term as Ruby.
+#
 require 'rubygems'
 require 'thread'
 require 'net/http'
