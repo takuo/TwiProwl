@@ -62,8 +62,7 @@ class TwiProwl
         end
         text = obj['text']
         if lastid < 0
-          lastid = obj['id']
-          debug_puts "last id = #{lastid}"
+          debug_puts "last id = #{obj['id']}"
         else
           debug_puts "Prowling: %s %s" % [ string, text ]
           Prowl.send( @api_key, 
@@ -72,6 +71,7 @@ class TwiProwl
                       :description => text )
           sleep 2 # Prowling delay is required maybe
         end
+        lastid = obj['id']
       end
     else
       debug_puts "HTTP CODE: #{res.code}"
@@ -124,6 +124,6 @@ config['Accounts'].each do |account|
   ac.run
 end
 
-while true
+loop do
   sleep 6000
 end
