@@ -11,17 +11,13 @@ require 'net/https'
 require 'json'
 require 'uri'
 require 'yaml'
+require 'logger'
 
 class TwiProwl
   
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   MENTIONS = "https://twitter.com/statuses/mentions.json?"
   DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
-
-  def debug_puts(str)
-    return unless @config['Debug']
-    puts @config['Application'] + ": " + str
-  end
 
   def initialize(prowl_conf, config)
     @prowl_conf = prowl_conf
@@ -31,6 +27,41 @@ class TwiProwl
     @config['MentionsInterval'] = 5 unless @config.has_key?('MentionsInterval')
     @config['DirectCount'] = 10 unless @config.has_key?('DirectCount')
     @config['DirectInterval'] = 10 unless @config.has_key?('DirectInterval')
+  end
+
+  def set_logger(logger)
+    @logger = logger
+  end
+
+  def logger=val
+    @logger=val
+  end
+
+  def debug(str)
+    if @logger
+      @logger.add(Logger::DEBUG, str, @config['Application'])
+    else
+      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] DEBUG:"), 
+      "#{@config['Application']} #{str}\n"
+    end
+  end
+
+  def error(str)
+    if @logger
+      @logger.add(Logger::ERROR, str, @config['Application'])
+    else
+      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] ERROR:"), 
+      "#{@config['Application']} #{str}\n"
+    end
+  end
+
+  def info(str)
+    if @logger
+      @logger.add(Logger::INFO, str, @config['Application'])
+    else
+      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] INFO:"), 
+      "#{@config['Application']} #{str}\n"
+    end
   end
 
   def prowl(params={})
@@ -57,8 +88,9 @@ class TwiProwl
     else
       reqstr += "count=1"
     end
-    debug_puts "Check #{reqstr}"
     uri = URI.parse(reqstr)
+    info "Checking... #{uri.path}"
+    debug "Check #{uri.request_uri}"
     http = Net::HTTP::new(uri.host, uri.port)
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE 
@@ -76,9 +108,10 @@ class TwiProwl
         end
         text = obj['text']
         if lastid < 0
-          debug_puts "last id = #{obj['id']}"
+          debug "last id = #{obj['id']}"
         else
-          debug_puts "Prowling: %s %s" % [ string, text ]
+          info "Prowling..."
+          debug "Prowling: %s %s" % [ string, text ]
           prowl( :apikey => @prowl_conf['APIKey'],
                  :application=> @config['Application'],
                  :event => string,
@@ -88,13 +121,13 @@ class TwiProwl
         lastid = obj['id']
       end
     else
-      debug_puts "HTTP CODE: #{res.code}"
+      debug "HTTP CODE: #{res.code}"
     end
     return lastid
   end
 
   def run
-    debug_puts "Start"
+    info "Start"
     t1 = nil
     t2 = nil
     if @config['Mentions']
@@ -102,12 +135,12 @@ class TwiProwl
         last_id = -1
         loop do
           begin
-            last_id = 
-              check(MENTIONS, last_id, @config['MentionsCount'])
+            last_id = check(MENTIONS, last_id, @config['MentionsCount'])
+            debug "Mentions last_id: #{last_id}"
           rescue
-            debug_puts "MentionsError: " + $!.to_s
+            error "MentionsError: " + $!.to_s
           end
-          debug_puts "Mentions sleep: #{@config['MentionsInterval']} mins"
+          debug "Mentions sleep: #{@config['MentionsInterval']} mins"
           sleep @config['MentionsInterval'] * 60
         end
       end
@@ -118,10 +151,11 @@ class TwiProwl
         loop do
           begin
             last_id = check(DIRECT_MESSAGES, last_id, @config['DirectCount'])
+            debug "Direct last_id: #{last_id}"
           rescue
-            debug_puts "DirectError: " + $!.to_s
+            error "DirectError: " + $!.to_s
           end
-          debug_puts "Direct sleep: #{@config['DirectInterval']} mins"
+          debug "Direct sleep: #{@config['DirectInterval']} mins"
           sleep @config['DirectInterval'] * 60
         end
       end
@@ -130,11 +164,24 @@ class TwiProwl
 
 end
 
+Dir.chdir(File.dirname(__FILE__))
 config = YAML.load_file('config.yml')
-api_key = config['Prowl']['APIKey']
+
+# Logger
+logdir = config['LogDir'] ? config['LogDir'] : nil
+if logdir
+  Dir.mkdir(logdir) unless File.exist?(logdir)
+  STDOUT.print "All logs will be written into #{File.join(logdir, "imaprowl.log")}.\n"
+  STDOUT.flush
+  logger = Logger.new(File.join(logdir, "imaprowl.log"), 'daily')
+  logger.level = config['Debug'] ? Logger::DEBUG : Logger::INFO
+  logger.datetime_format = "%Y-%m-%d %H:%M:%S"
+end
+
 accounts = Array.new
 config['Accounts'].each do |account|
   ac = TwiProwl.new(config['Prowl'], account)
+  ac.logger = logger unless logger.nil?
   ac.run
 end
 
