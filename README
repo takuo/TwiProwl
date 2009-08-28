@@ -29,9 +29,11 @@ Accounts:
   Mentions: <true|false> # Mentions
   MentionsCount: <limit to get new mentions (int)>
   MentionsInterval: <check interval (min)>
+  MentionsPriority: <-2 to 2> # prowl priority, default 0
   Direct: <true|false> # Direct Message
   DirectCount: <limit to get new DirectMessage (int)>
   DirectInterval: <check interval (min)>
+  DirectPriority: <-2 to 2> # prowl priority, default 0
   UseProxy: <true|false> # use HTTP Proxy?
  - 
   <Other account config here>

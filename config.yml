@@ -15,7 +15,9 @@ Accounts:
   Mentions: true
   MentionsCount: 10
   MentionsInterval: 1.5
+  MentionsPriority: 1
   Direct: true
   DirectCount: 10
   DirectInterval: 10
+  DirectPriority: 0
 #  UseProxy:true
