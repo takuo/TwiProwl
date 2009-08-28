@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.1
+# Version: 0.2
 #
 # Copyright (c) 2009 Takuo Kitame.
 #
@@ -64,16 +64,21 @@ class TwiProwl
     end
   end
 
-  def prowl(params={})
-    u = URI::parse(PROWL_API_ADD)
-    if @prowl_conf['ProxyHost']
+  def http_new(uri, use_proxy = true)
+    if @prowl_conf['ProxyHost'] 
       http = Net::HTTP::Proxy(@prowl_conf['ProxyHost'],
                               @prowl_conf['ProxyPort'],
                               @prowl_conf['ProxyUser'],
-                              @prowl_conf['ProxyPass']).new(u.host, u.port)
+                              @prowl_conf['ProxyPass']).new(uri.host, uri.port)
     else
-      http = Net::HTTP.new(u.host, u.port)
+      http = Net::HTTP.new(uri.host, uri.port)
     end
+    return http
+  end
+
+  def prowl(params={})
+    u = URI::parse(PROWL_API_ADD)
+    http = http_new(u)
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     request = Net::HTTP::Post.new(u.request_uri)
@@ -91,7 +96,7 @@ class TwiProwl
     uri = URI.parse(reqstr)
     info "Checking... #{uri.path}"
     debug "Check #{uri.request_uri}"
-    http = Net::HTTP::new(uri.host, uri.port)
+    http = http_new(uri, @config['UseProxy'])
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE 
     req = Net::HTTP::Get.new(uri.request_uri)
