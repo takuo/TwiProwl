@@ -25,8 +25,10 @@ class TwiProwl
     @config['Application'] = "Twitter" unless @config.has_key?('Application')
     @config['MentionsCount'] = 10 unless @config.has_key?('MentionsCount')
     @config['MentionsInterval'] = 5 unless @config.has_key?('MentionsInterval')
+    @config['MentionsPriority'] = 0 unless @config.has_key?('MentionsPriority')
     @config['DirectCount'] = 10 unless @config.has_key?('DirectCount')
     @config['DirectInterval'] = 10 unless @config.has_key?('DirectInterval')
+    @config['DirectPriority'] = 0 unless @config.has_key?('DirectPriority')
   end
 
   def set_logger(logger)
@@ -86,7 +88,7 @@ class TwiProwl
     return http.request(request, query.join('&'))
   end
 
-  def check(reqstr, lastid, count)
+  def check(reqstr, lastid, count, prio)
     if lastid > 0
       reqstr += "since_id=#{lastid}"
       reqstr += "&count=#{count}"
@@ -120,7 +122,9 @@ class TwiProwl
           prowl( :apikey => @prowl_conf['APIKey'],
                  :application=> @config['Application'],
                  :event => string,
-                 :description => text )
+                 :description => text,
+                 :priority => prio
+                 )
           sleep 2
         end
         lastid = obj['id']
@@ -140,7 +144,8 @@ class TwiProwl
         last_id = -1
         loop do
           begin
-            last_id = check(MENTIONS, last_id, @config['MentionsCount'])
+            last_id = check(MENTIONS, last_id,
+                            @config['MentionsCount'], @config['MentionsPriority'])
             debug "Mentions last_id: #{last_id}"
           rescue
             error "MentionsError: " + $!.to_s
@@ -155,7 +160,8 @@ class TwiProwl
         last_id = -1
         loop do
           begin
-            last_id = check(DIRECT_MESSAGES, last_id, @config['DirectCount'])
+            last_id = check(DIRECT_MESSAGES, last_id,
+                            @config['DirectCount'], @config['DirectPriority'])
             debug "Direct last_id: #{last_id}"
           rescue
             error "DirectError: " + $!.to_s
