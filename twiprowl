@@ -7,17 +7,14 @@
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
-require 'rubygems'
-require 'thread'
-require 'net/http'
 require 'net/https'
-require 'prowl'
 require 'json'
 require 'uri'
 require 'yaml'
 
 class TwiProwl
   
+  PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   MENTIONS = "https://twitter.com/statuses/mentions.json?"
   DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
 
@@ -26,14 +23,31 @@ class TwiProwl
     puts @config['Application'] + ": " + str
   end
 
-  def initialize(config, api_key)
+  def initialize(prowl_conf, config)
+    @prowl_conf = prowl_conf
     @config = config
-    @api_key = api_key
     @config['Application'] = "Twitter" unless @config.has_key?('Application')
     @config['MentionsCount'] = 10 unless @config.has_key?('MentionsCount')
     @config['MentionsInterval'] = 5 unless @config.has_key?('MentionsInterval')
     @config['DirectCount'] = 10 unless @config.has_key?('DirectCount')
     @config['DirectInterval'] = 10 unless @config.has_key?('DirectInterval')
+  end
+
+  def prowl(params={})
+    u = URI::parse(PROWL_API_ADD)
+    if @prowl_conf['ProxyHost']
+      http = Net::HTTP::Proxy(@prowl_conf['ProxyHost'],
+                              @prowl_conf['ProxyPort'],
+                              @prowl_conf['ProxyUser'],
+                              @prowl_conf['ProxyPass']).new(u.host, u.port)
+    else
+      http = Net::HTTP.new(u.host, u.port)
+    end
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    request = Net::HTTP::Post.new(u.request_uri)
+    query = params.map do |key, val| "#{key}=#{URI::encode(val)}" end
+    return http.request(request, query.join('&'))
   end
 
   def check(reqstr, lastid, count)
@@ -65,11 +79,11 @@ class TwiProwl
           debug_puts "last id = #{obj['id']}"
         else
           debug_puts "Prowling: %s %s" % [ string, text ]
-          Prowl.send( @api_key, 
-                      :application=>@config['Application'],
-                      :event => string,
-                      :description => text )
-          sleep 2 # Prowling delay is required maybe
+          prowl( :apikey => @prowl_conf['APIKey'],
+                 :application=> @config['Application'],
+                 :event => string,
+                 :description => text )
+          sleep 2
         end
         lastid = obj['id']
       end
@@ -120,7 +134,7 @@ config = YAML.load_file('config.yml')
 api_key = config['Prowl']['APIKey']
 accounts = Array.new
 config['Accounts'].each do |account|
-  ac = TwiProwl.new(account, api_key)
+  ac = TwiProwl.new(config['Prowl'], account)
   ac.run
 end
 
