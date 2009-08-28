@@ -1,5 +1,12 @@
+LogDir: ./logs
+Debug: false
+
 Prowl:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# ProxyHost: 
+# ProxyPort:
+# ProxyUser:
+# ProxyPass:
 
 Accounts:
  -
@@ -7,8 +14,8 @@ Accounts:
   Pass: himitsu
   Mentions: true
   MentionsCount: 10
-  MentionsInterval: 5
+  MentionsInterval: 1.5
   Direct: true
   DirectCount: 10
   DirectInterval: 10
-  Debug: true
+#  UseProxy:true

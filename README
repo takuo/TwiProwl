@@ -3,7 +3,6 @@
 1. install some ruby libraries
  - openssl
  - json
- - prowl (rubygems)
 
 2. setup config.yml
 
@@ -12,8 +11,15 @@
 
 = config.yml =
 
+LogDir: <Log Directory>
+Debug: <Debugging ouput to log. true/false >
+
 Prowl:
  APIKey: <the Prowl API Key>
+ ProxyHost: <HTTP Proxy host address if it's available>
+ ProxyPort: <HTTP Proxy port number>
+ ProxyUser: <Authentication username for HTTP Proxy if it's required>
+ ProxyPass: <Authentication password for HTTP Proxy if it's required>
 
 Accounts:
  -
@@ -26,6 +32,6 @@ Accounts:
   Direct: <true|false> # Direct Message
   DirectCount: <limit to get new DirectMessage (int)>
   DirectInterval: <check interval (min)>
-  Debug: <true|false> # debug outputs
+  UseProxy: <true|false> # use HTTP Proxy?
  - 
   <Other account config here>
