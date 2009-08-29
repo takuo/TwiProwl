@@ -67,7 +67,7 @@ class TwiProwl
   end
 
   def http_new(uri, use_proxy = true)
-    if @prowl_conf['ProxyHost'] 
+    if @prowl_conf['ProxyHost'] and use_proxy
       http = Net::HTTP::Proxy(@prowl_conf['ProxyHost'],
                               @prowl_conf['ProxyPort'],
                               @prowl_conf['ProxyUser'],
@@ -84,7 +84,8 @@ class TwiProwl
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     request = Net::HTTP::Post.new(u.request_uri)
-    query = params.map do |key, val| "#{key}=#{URI::encode(val)}" end
+    query = params.map do |key, val| "#{key}=#{URI::encode(val.to_s)}" end
+    debug "QueryString: " + query.join('&')
     return http.request(request, query.join('&'))
   end
 
@@ -119,12 +120,13 @@ class TwiProwl
         else
           info "Prowling..."
           debug "Prowling: %s %s" % [ string, text ]
-          prowl( :apikey => @prowl_conf['APIKey'],
-                 :application=> @config['Application'],
-                 :event => string,
-                 :description => text,
-                 :priority => prio
-                 )
+          res = prowl( :apikey => @prowl_conf['APIKey'],
+                       :application=> @config['Application'],
+                       :event => string,
+                       :description => text,
+                       :priority => prio
+                     )
+          debug "Response: #{res}"
           sleep 2
         end
         lastid = obj['id']
