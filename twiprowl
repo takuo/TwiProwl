@@ -184,7 +184,7 @@ config = YAML.load_file('config.yml')
 logdir = config['LogDir'] ? config['LogDir'] : nil
 if logdir
   Dir.mkdir(logdir) unless File.exist?(logdir)
-  STDOUT.print "All logs will be written into #{File.join(logdir, "imaprowl.log")}.\n"
+  STDOUT.print "All logs will be written into #{File.join(logdir, "twiprowl.log")}.\n"
   STDOUT.flush
   logger = Logger.new(File.join(logdir, "imaprowl.log"), 'daily')
   logger.level = config['Debug'] ? Logger::DEBUG : Logger::INFO
