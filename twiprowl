@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.2
+# Version: 0.3
 #
 # Copyright (c) 2009 Takuo Kitame.
 #
@@ -15,12 +15,14 @@ require 'logger'
 
 class TwiProwl
   
+  LOGFILE = "twiprowl.log"
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   MENTIONS = "https://twitter.com/statuses/mentions.json?"
   DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
 
-  def initialize(prowl_conf, config)
-    @prowl_conf = prowl_conf
+  def initialize(global, config)
+    @@conf = global
+    _prowl_conf_validate(@@conf['Prowl'])
     @config = config
     @config['Application'] = "Twitter" unless @config.has_key?('Application')
     @config['MentionsCount'] = 10 unless @config.has_key?('MentionsCount')
@@ -31,47 +33,72 @@ class TwiProwl
     @config['DirectPriority'] = 0 unless @config.has_key?('DirectPriority')
   end
 
-  def set_logger(logger)
-    @logger = logger
-  end
+  @@conf = Hash.new
+  @@logger = nil
+  @@prowl_conf = nil
 
-  def logger=val
-    @logger=val
-  end
-
-  def debug(str)
-    if @logger
-      @logger.add(Logger::DEBUG, str, @config['Application'])
-    else
-      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] DEBUG:"), 
-      "#{@config['Application']} #{str}\n"
+  private
+  def _prowl_conf_validate(val)
+    return if @@prowl_conf
+    @@prowl_conf = val
+    unless @@prowl_conf.kind_of?(Hash)
+      STDERR.printf "Configuration Error: Prowl section must be Hash.\n"
+      exit 1
     end
+    unless @@prowl_conf.has_key?('APIKey')
+      STDERR.printf "Configuration Error: APIKey must be given.\n"
+      exit 1
+    end
+    _init_logger()
+  end
+
+  def _init_logger
+    if @@conf['LogDir']
+      logdir = @@conf['LogDir']
+      Dir.mkdir(logdir) unless File.exist?(logdir)
+      file = File.join(logdir, LOGFILE)
+      STDOUT.puts "All logs will be written into #{file}."
+      STDOUT.flush
+      @@logger = Logger.new(file, 'daily')
+      @@logger.level = @@conf['Debug'] ? Logger::DEBUG : Logger::INFO
+      @@logger.datetime_format = "%Y-%m-%d %H:%M:%S"
+    else
+      @@logger = nil
+      STDOUT.sync = true
+    end
+  end
+
+  def _log(severity, str)
+    if @@logger
+      @@logger.add(severity, str, @application)
+    else
+      if severity == Logger::ERROR
+        STDERR.print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+      else
+        print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+      end
+    end
+  end
+
+  public
+  def debug(str)
+    _log(Logger::DEBUG, str)
   end
 
   def error(str)
-    if @logger
-      @logger.add(Logger::ERROR, str, @config['Application'])
-    else
-      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] ERROR:"), 
-      "#{@config['Application']} #{str}\n"
-    end
+    _log(Logger::ERROR, str)
   end
 
   def info(str)
-    if @logger
-      @logger.add(Logger::INFO, str, @config['Application'])
-    else
-      print Time.now.strftime("[%Y-%m-%d %H:%M:%S] INFO:"), 
-      "#{@config['Application']} #{str}\n"
-    end
+    _log(Logger::INFO, str)
   end
 
   def http_new(uri, use_proxy = true)
-    if @prowl_conf['ProxyHost'] and use_proxy
-      http = Net::HTTP::Proxy(@prowl_conf['ProxyHost'],
-                              @prowl_conf['ProxyPort'],
-                              @prowl_conf['ProxyUser'],
-                              @prowl_conf['ProxyPass']).new(uri.host, uri.port)
+    if @@prowl_conf['ProxyHost'] and use_proxy
+      http = Net::HTTP::Proxy(@@prowl_conf['ProxyHost'],
+                              @@prowl_conf['ProxyPort'],
+                              @@prowl_conf['ProxyUser'],
+                              @@prowl_conf['ProxyPass']).new(uri.host, uri.port)
     else
       http = Net::HTTP.new(uri.host, uri.port)
     end
@@ -120,7 +147,7 @@ class TwiProwl
         else
           info "Prowling..."
           debug "Prowling: %s %s" % [ string, text ]
-          res = prowl( :apikey => @prowl_conf['APIKey'],
+          res = prowl( :apikey => @@prowl_conf['APIKey'],
                        :application=> @config['Application'],
                        :event => string,
                        :description => text,
@@ -177,27 +204,20 @@ class TwiProwl
 
 end
 
+# __MAIN__
+
 Dir.chdir(File.dirname(__FILE__))
 config = YAML.load_file('config.yml')
 
-# Logger
-logdir = config['LogDir'] ? config['LogDir'] : nil
-if logdir
-  Dir.mkdir(logdir) unless File.exist?(logdir)
-  STDOUT.print "All logs will be written into #{File.join(logdir, "twiprowl.log")}.\n"
-  STDOUT.flush
-  logger = Logger.new(File.join(logdir, "imaprowl.log"), 'daily')
-  logger.level = config['Debug'] ? Logger::DEBUG : Logger::INFO
-  logger.datetime_format = "%Y-%m-%d %H:%M:%S"
-end
-
 accounts = Array.new
 config['Accounts'].each do |account|
-  ac = TwiProwl.new(config['Prowl'], account)
-  ac.logger = logger unless logger.nil?
+  ac = TwiProwl.new(config, account)
   ac.run
 end
 
 loop do
   sleep 6000
 end
+
+# __END__
+
