@@ -191,22 +191,21 @@ class TwiProwl
     if res.code == "200"
       json = JSON::parse( res.body )
       json.reverse.each do |obj|
-        string = ""
         if obj.has_key?('sender_screen_name')
-          string = " Direct: " + obj['sender_screen_name']
+          event = " Direct: " + obj['sender_screen_name']
         else
-          string = " Mentions: " + obj['user']['screen_name']
+          event = " Mentions: " + obj['user']['screen_name']
         end
-        text = obj['text']
+        desc = obj['text']
         if info.last_id < 0
           debug " #{info.name}: last_id = #{obj['id']}"
         else
           info " Prowling..."
-          debug "  Prowling: %s %s" % [ string, text ]
+          debug "  Prowling: %s %s" % [ event, desc ]
           res = prowl( :apikey => @@prowl_conf['APIKey'],
                        :application=> @application,
-                       :event => string,
-                       :description => text,
+                       :event => event,
+                       :description => desc,
                        :priority => info.priority
                      )
           debug "Response: #{res}"
@@ -246,8 +245,8 @@ class TwiProwl
     end
 
     # DirectMessage
-    if @direct.interval > 0
-      && ( @direct.thread.nil? || !@direct.thread.alive? )
+    if @direct.interval > 0 &&
+        ( @direct.thread.nil? || !@direct.thread.alive? )
       info "Start thread for DirectMessage."
       @direct.thread = Thread.new do
         loop do
