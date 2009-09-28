@@ -20,8 +20,6 @@ STDOUT.sync = STDERR.sync = true
 TWIPROWL_VERSION = "0.4"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
-Thread.abort_on_exception = true
-
 class TwiProwl
   
   LOGFILE = "twiprowl.log"
