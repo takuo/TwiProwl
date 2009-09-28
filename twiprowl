@@ -206,13 +206,13 @@ class TwiProwl
         else
           info " Prowling..."
           debug "  Prowling: %s %s" % [ event, desc ]
-          res = prowl( :apikey => @@prowl_conf['APIKey'],
+          prowres = prowl( :apikey => @@prowl_conf['APIKey'],
                        :application=> @application,
                        :event => event,
                        :description => desc,
                        :priority => info.priority
                      )
-          debug "Response: #{res}"
+          debug "Response: #{prowres}"
           sleep 2
         end
         info.last_id = obj['id']
