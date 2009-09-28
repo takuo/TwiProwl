@@ -1,17 +1,26 @@
 #!/usr/bin/ruby
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.3
+# Version: 0.4
 #
 # Copyright (c) 2009 Takuo Kitame.
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
+
+require 'optparse'
 require 'net/https'
 require 'json'
 require 'uri'
 require 'yaml'
 require 'logger'
+
+STDOUT.sync = STDERR.sync = true
+
+TWIPROWL_VERSION = "0.4"
+$0 = "TwiProwl/#{TWIPROWL_VERSION}"
+
+Thread.abort_on_exception = true
 
 class TwiProwl
   
@@ -19,18 +28,27 @@ class TwiProwl
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   MENTIONS = "https://twitter.com/statuses/mentions.json?"
   DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
+  RATE_LIMIT = "https://twitter.com/account/rate_limit_status.json"
 
-  def initialize(global, config)
+  CheckInfo = Struct.new(:name, :last_id, :enable, :count, :interval, :priority, :thread)
+
+  def initialize( global, config )
     @@conf = global
-    _prowl_conf_validate(@@conf['Prowl'])
-    @config = config
-    @config['Application'] = "Twitter" unless @config.has_key?('Application')
-    @config['MentionsCount'] = 10 unless @config.has_key?('MentionsCount')
-    @config['MentionsInterval'] = 5 unless @config.has_key?('MentionsInterval')
-    @config['MentionsPriority'] = 0 unless @config.has_key?('MentionsPriority')
-    @config['DirectCount'] = 10 unless @config.has_key?('DirectCount')
-    @config['DirectInterval'] = 10 unless @config.has_key?('DirectInterval')
-    @config['DirectPriority'] = 0 unless @config.has_key?('DirectPriority')
+    _prowl_conf_validate( @@conf['Prowl'] )
+    @mentions = CheckInfo.new( "Mentions", -1 )
+    @direct   = CheckInfo.new( "Direct", -1 )
+    @application = config['Application'] ? config['Application'] : "Twitter"
+
+    @mentions.count = config['MentionsCount'] ? config['MentionsCount'] : 10
+    @mentions.interval = config['MentionsInterval'] ? config['MentionsInterval'] : 300
+    @mentions.priority = config['MentionsPriority'] ? config['MentionsPriority'] : 0
+    @direct.count = config['DirectCount'] ? config['DirectCount'] : 10
+    @direct.interval = config['DirectInterval'] ? config['DirectInterval'] : 600
+    @direct.priority = config['DirectPriority'] ? config['DirectPriority'] : 0
+    @user = config['User']
+    @pass = config['Pass']
+    @use_proxy = config['UseProxy']
+    @threshold = config['RateLimitThreshold'] ? config['RateLimitThreshold'] : 20
   end
 
   @@conf = Hash.new
@@ -57,25 +75,24 @@ class TwiProwl
       logdir = @@conf['LogDir']
       Dir.mkdir(logdir) unless File.exist?(logdir)
       file = File.join(logdir, LOGFILE)
-      STDOUT.puts "All logs will be written into #{file}."
-      STDOUT.flush
+      STDOUT.print "All logs will be written into #{file}.\n"
       @@logger = Logger.new(file, 'daily')
       @@logger.level = @@conf['Debug'] ? Logger::DEBUG : Logger::INFO
       @@logger.datetime_format = "%Y-%m-%d %H:%M:%S"
     else
       @@logger = nil
-      STDOUT.sync = true
     end
   end
 
-  def _log(severity, str)
+  def _log( severity, str )
     if @@logger
-      @@logger.add(severity, str, @application)
+      @@logger.add( severity, str, @application )
     else
+      format = "[%Y-%m-%d %H:%M:%S##{Process.pid}] #{@application} - #{str}\n"
       if severity == Logger::ERROR
-        STDERR.print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+        STDERR.print Time.now.strftime( format )
       else
-        print Time.now.strftime("[%Y.%m.%d %H:%M:%S] #{@application} - "), str, "\n"
+        print Time.now.strftime( format )
       end
     end
   end
@@ -93,110 +110,155 @@ class TwiProwl
     _log(Logger::INFO, str)
   end
 
-  def http_new(uri, use_proxy = true)
+  def http_new( uri, use_proxy = true )
     if @@prowl_conf['ProxyHost'] and use_proxy
       http = Net::HTTP::Proxy(@@prowl_conf['ProxyHost'],
                               @@prowl_conf['ProxyPort'],
                               @@prowl_conf['ProxyUser'],
-                              @@prowl_conf['ProxyPass']).new(uri.host, uri.port)
+                              @@prowl_conf['ProxyPass']).new( uri.host,
+                                                              uri.port )
     else
-      http = Net::HTTP.new(uri.host, uri.port)
+      http = Net::HTTP.new( uri.host, uri.port )
     end
     return http
   end
 
-  def prowl(params={})
-    u = URI::parse(PROWL_API_ADD)
-    http = http_new(u)
-    http.use_ssl = true
-    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-    request = Net::HTTP::Post.new(u.request_uri)
-    query = params.map do |key, val| "#{key}=#{URI::encode(val.to_s)}" end
-    debug "QueryString: " + query.join('&')
-    return http.request(request, query.join('&'))
+  def prowl( params={} )
+    begin
+      uri = URI::parse( PROWL_API_ADD )
+      http = http_new( uri )
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      request = Net::HTTP::Post.new( uri.request_uri )
+      request.content_type = "application/x-www-form-urlencoded"
+      query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
+      return http.request( request, query.join( '&' ) )
+    rescue
+      error "Error while Prowling: #{$!}"
+      return nil
+    end
   end
 
-  def check(reqstr, lastid, count, prio)
-    if lastid > 0
-      reqstr += "since_id=#{lastid}"
-      reqstr += "&count=#{count}"
+  def rate_limit_check( threshold )
+    return true if threshold == 0
+    uri = URI.parse( RATE_LIMIT )
+    info "Checking Rate Limit Status."
+    debug " Check #{uri.request_uri}"
+    http = http_new( uri, @use_proxy )
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE 
+    req = Net::HTTP::Get.new( uri.request_uri )
+    req.basic_auth( @user, @pass )
+    begin
+      res = http.request( req )
+    rescue 
+      error "HTTP Get Error: #{$!}"
+      return false
+    end
+    if res.code == "200"
+      json = JSON::parse( res.body )
+      limit = json['remaining_hits'].to_i
+      debug " Remaining Hits: #{limit}"
+      return ( limit >= threshold )
+    else
+      error " HTTP #{res.code}: #{res.to_s}"
+    end
+    return false 
+ end
+
+  def check( reqstr, info )
+    return unless rate_limit_check( @threshold )
+    if info.last_id > 0
+      reqstr += "since_id=#{info.last_id}"
+      reqstr += "&count=#{info.count}"
     else
       reqstr += "count=1"
     end
-    uri = URI.parse(reqstr)
-    info "Checking... #{uri.path}"
-    debug "Check #{uri.request_uri}"
-    http = http_new(uri, @config['UseProxy'])
+    uri = URI.parse( reqstr )
+    info "Checking: #{info.name}"
+    debug " Check #{uri.request_uri}"
+    http = http_new( uri, @use_proxy )
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_NONE 
-    req = Net::HTTP::Get.new(uri.request_uri)
-    req.basic_auth(@config['User'], @config['Pass'])
-    res = http.request(req)
+    req = Net::HTTP::Get.new( uri.request_uri )
+    req.basic_auth( @user, @pass )
+    begin
+      res = http.request( req )
+    rescue 
+      error " HTTP Get Error: #{$!}"
+      return info.last_id
+    end
     if res.code == "200"
-      json = JSON::parse(res.body)
+      json = JSON::parse( res.body )
       json.reverse.each do |obj|
         string = ""
         if obj.has_key?('sender_screen_name')
-          string = "Direct: " + obj['sender_screen_name']
+          string = " Direct: " + obj['sender_screen_name']
         else
-          string = "Mentions: " + obj['user']['screen_name']
+          string = " Mentions: " + obj['user']['screen_name']
         end
         text = obj['text']
-        if lastid < 0
-          debug "last id = #{obj['id']}"
+        if info.last_id < 0
+          debug " #{info.name}: last_id = #{obj['id']}"
         else
-          info "Prowling..."
-          debug "Prowling: %s %s" % [ string, text ]
+          info " Prowling..."
+          debug "  Prowling: %s %s" % [ string, text ]
           res = prowl( :apikey => @@prowl_conf['APIKey'],
-                       :application=> @config['Application'],
+                       :application=> @application,
                        :event => string,
                        :description => text,
-                       :priority => prio
+                       :priority => info.priority
                      )
           debug "Response: #{res}"
           sleep 2
         end
-        lastid = obj['id']
+        info.last_id = obj['id']
       end
+      
+      debug " RateLimit: %d/%d Reset at %s" % [
+                                              res['X-RateLimit-Remaining'],
+                                              res['X-RateLimit-Limit'],
+                                              Time.at(res['X-RateLimit-Reset'].to_i).to_s
+                                             ]
     else
-      debug "HTTP CODE: #{res.code}"
+      debug " HTTP #{res.code}:, #{res}"
     end
-    return lastid
+    return info.last_id
   end
 
   def run
-    info "Start"
-    t1 = nil
-    t2 = nil
-    if @config['Mentions']
-      t1 = Thread.new do
-        last_id = -1
+    # Mentions
+    if @mentions.interval > 0 &&
+        ( @mentions.thread.nil? || !@mentions.thread.alive? )
+      info "Start thread for Mentions."
+      @mentions.thread = Thread.new do
         loop do
           begin
-            last_id = check(MENTIONS, last_id,
-                            @config['MentionsCount'], @config['MentionsPriority'])
-            debug "Mentions last_id: #{last_id}"
+            @mentions.last_id = check( MENTIONS, @mentions )
+            debug " Mentions last_id: #{@mentions.last_id}"
           rescue
-            error "MentionsError: " + $!.to_s
+            error " MentionsError: " + $!.to_s
           end
-          debug "Mentions sleep: #{@config['MentionsInterval']} mins"
-          sleep @config['MentionsInterval'] * 60
+          debug " Mentions sleep: #{@mentions.interval} secs"
+          sleep @mentions.interval
         end
       end
     end
-    if @config['Direct']
-      t2 = Thread.new do 
-        last_id = -1
+
+    # DirectMessage
+    if @direct.interval > 0
+      && ( @direct.thread.nil? || !@direct.thread.alive? )
+      info "Start thread for DirectMessage."
+      @direct.thread = Thread.new do
         loop do
           begin
-            last_id = check(DIRECT_MESSAGES, last_id,
-                            @config['DirectCount'], @config['DirectPriority'])
-            debug "Direct last_id: #{last_id}"
+            @direct.last_id = check( DIRECT_MESSAGES, @direct )
+            debug " Direct last_id: #{@direct.last_id}"
           rescue
-            error "DirectError: " + $!.to_s
+            error " DirectError: " + $!.to_s
           end
-          debug "Direct sleep: #{@config['DirectInterval']} mins"
-          sleep @config['DirectInterval'] * 60
+          debug " Direct sleep: #{@direct.interval} secs"
+          sleep @direct.interval
         end
       end
     end
@@ -204,20 +266,79 @@ class TwiProwl
 
 end
 
-# __MAIN__
+## __MAIN__
 
-Dir.chdir(File.dirname(__FILE__))
-config = YAML.load_file('config.yml')
+## command line options
+ProgramConfig = Hash.new
+opts = OptionParser.new
+opts.on( "-c", "--config FILENAME", String, "Specify the config file." ) { |v| ProgramConfig[:config] = v }
+opts.on( "-q", "--daemon",nil, "Enable daemon mode.") { |v| ProgramConfig[:daemon] = true }
+opts.on( "-d", "--debug", nil, "Enable debug output." ) { |v| ProgramConfig[:debug] = true }
+opts.version = TWIPROWL_VERSION
+opts.program_name = "twiprowl"
+opts.parse!( ARGV )
+
+## config file
+config_order = [
+  File.join( ENV['HOME'], '.twiprowl.conf' ),
+  File.join( Dir.pwd, 'twiprowl.conf' ),
+  File.join( Dir.pwd, 'config.yml' ),
+  File.join( File.dirname( __FILE__ ), 'twiprowl.conf' )
+]
+
+filename = nil
+if ProgramConfig[:config]
+  if File.exist?( ProgramConfig[:config] )
+    filename = ProgramConfig[:config]
+  else
+    STDERR.print "Configuration file does not exist: #{ProgramConfig[:config]}\n"
+    exit 1
+  end
+else
+  config_order.each do |conf|
+    next unless File.exist?( conf )
+    filename = conf
+    break
+  end
+end
+if filename.nil?
+  STDERR.print "No configuration file exist.\n"
+  STDERR.print "File candidates are:\n"
+  STDERR.print config_order.join("\n")
+  STDERR.print "\n"
+  exit 1
+end
+
+STDOUT.print "LoadConf: #{filename}\n" 
+config = YAML.load_file( filename )
+config["Debug"] = true if ProgramConfig[:debug]
+
+
+## Daemon mode
+if Process.respond_to?('daemon') &&
+    ( ProgramConfig[:daemon] || config['Daemon'] )
+  begin
+    Process.daemon( true, true )
+  rescue
+    STDERR.print $!
+    exit 1
+  end
+  STDOUT.print "Daemonized. PID=#{Process.pid}\n"
+  STDOUT.flush
+end
 
 accounts = Array.new
 config['Accounts'].each do |account|
-  ac = TwiProwl.new(config, account)
+  ac = TwiProwl.new( config, account )
   ac.run
+  accounts.push ac
 end
 
 loop do
-  sleep 6000
+  sleep 60
+  accounts.each do |ac|
+    ac.run
+  end
 end
 
 # __END__
-
