@@ -4,7 +4,7 @@
  - openssl
  - json
 
-2. setup config.yml
+2. copy config.yml to ~/.twiprowl.conf and edit it.
 
 3. run twiprowl
 
@@ -26,14 +26,14 @@ Accounts:
   Application: <application name (optional)> 
   User: <Twitter username>
   Pass: <Twitter Password>
-  Mentions: <true|false> # Mentions
   MentionsCount: <limit to get new mentions (int)>
-  MentionsInterval: <check interval (min)>
+  MentionsInterval: <check interval (sec)> # 0 for disable it, default: 300
   MentionsPriority: <-2 to 2> # prowl priority, default 0
   Direct: <true|false> # Direct Message
   DirectCount: <limit to get new DirectMessage (int)>
-  DirectInterval: <check interval (min)>
+  DirectInterval: <check interval (sec)> # 0 for disable it, default: 600
   DirectPriority: <-2 to 2> # prowl priority, default 0
   UseProxy: <true|false> # use HTTP Proxy?
+  RateLimitThreshold: <0 to 150> # don't check when RateLimitStatus is under the value, default: 20
  - 
   <Other account config here>
