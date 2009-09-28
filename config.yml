@@ -1,5 +1,6 @@
-LogDir: ./logs
+LogDir: /home/gonbe/var/log
 Debug: false
+Daemon: true
 
 Prowl:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -10,14 +11,14 @@ Prowl:
 
 Accounts:
  -
+  Application: "Gonbe's Twitter"
   User: gonbe
   Pass: himitsu
-  Mentions: true
   MentionsCount: 10
-  MentionsInterval: 1.5
+  MentionsInterval: 300
   MentionsPriority: 1
-  Direct: true
   DirectCount: 10
-  DirectInterval: 10
+  DirectInterval: 600
   DirectPriority: 0
-#  UseProxy: true
+  RateLimitThreshold: 20
+  UseProxy: false
