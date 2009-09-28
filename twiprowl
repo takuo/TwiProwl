@@ -17,7 +17,7 @@ require 'logger'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.4.1"
+TWIPROWL_VERSION = "0.4.2"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -165,7 +165,7 @@ class TwiProwl
       debug " Remaining Hits: #{limit}"
       return ( limit >= threshold )
     else
-      error " HTTP #{res.code}: #{res.to_s}"
+      error " HTTP #{res.code}: #{res.name}"
     end
     return false 
  end
@@ -190,7 +190,7 @@ class TwiProwl
       res = http.request( req )
     rescue 
       error " HTTP Get Error: #{$!}"
-      return info.last_id
+      return
     end
     if res.code == "200"
       json = JSON::parse( res.body )
@@ -201,6 +201,17 @@ class TwiProwl
           event = " Mentions: " + obj['user']['screen_name']
         end
         desc = obj['text']
+        desc.gsub!(/&(amp|quot|gt|lt);/n) do
+          match = $1.dup
+          case match
+          when 'amp'  then '&'
+          when 'quot' then '"'
+          when 'gt'   then '>'
+          when 'lt'   then '<'
+          else
+            "&#{match};"
+          end
+        end
         if info.last_id < 0
           debug " #{info.name}: last_id = #{obj['id']}"
         else
@@ -212,7 +223,7 @@ class TwiProwl
                        :description => desc,
                        :priority => info.priority
                      )
-          debug "Response: #{prowres}"
+          debug "Response: #{prowres.name}"
           sleep 2
         end
         info.last_id = obj['id']
@@ -226,7 +237,7 @@ class TwiProwl
     else
       debug " HTTP #{res.code}:, #{res}"
     end
-    return info.last_id
+    return
   end
 
   def run
@@ -237,7 +248,7 @@ class TwiProwl
       @mentions.thread = Thread.new do
         loop do
           begin
-            @mentions.last_id = check( MENTIONS, @mentions )
+            check( MENTIONS, @mentions )
             debug " Mentions last_id: #{@mentions.last_id}"
           rescue
             error " MentionsError: " + $!.to_s
@@ -255,7 +266,7 @@ class TwiProwl
       @direct.thread = Thread.new do
         loop do
           begin
-            @direct.last_id = check( DIRECT_MESSAGES, @direct )
+            check( DIRECT_MESSAGES, @direct )
             debug " Direct last_id: #{@direct.last_id}"
           rescue
             error " DirectError: " + $!.to_s
@@ -336,6 +347,13 @@ config['Accounts'].each do |account|
   ac.run
   accounts.push ac
 end
+
+Signal.trap(:INT) {
+  exit
+}
+Signal.trap(:TERM) {
+  exit
+}
 
 loop do
   sleep 60
