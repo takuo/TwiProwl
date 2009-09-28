@@ -17,7 +17,7 @@ require 'logger'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.4"
+TWIPROWL_VERSION = "0.4.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -54,6 +54,12 @@ class TwiProwl
   @@prowl_conf = nil
 
   private
+  def post_escape( string )
+    string.gsub(/([^ a-zA-Z0-9_.-]+)/) do
+      '%' + $1.unpack('H2' * $1.bytesize).join('%').upcase
+    end.tr(' ', '+')
+  end
+
   def _prowl_conf_validate(val)
     return if @@prowl_conf
     @@prowl_conf = val
