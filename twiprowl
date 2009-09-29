@@ -16,8 +16,9 @@ require 'yaml'
 require 'logger'
 
 STDOUT.sync = STDERR.sync = true
+Thread.abort_on_exception = true
 
-TWIPROWL_VERSION = "0.4.2"
+TWIPROWL_VERSION = "0.4.3"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -165,7 +166,7 @@ class TwiProwl
       debug " Remaining Hits: #{limit}"
       return ( limit >= threshold )
     else
-      error " HTTP #{res.code}: #{res.name}"
+      error " HTTP #{res}"
     end
     return false 
  end
@@ -223,7 +224,7 @@ class TwiProwl
                        :description => desc,
                        :priority => info.priority
                      )
-          debug "Response: #{prowres.name}"
+          debug "Response: #{prowres}"
           sleep 2
         end
         info.last_id = obj['id']
@@ -235,7 +236,7 @@ class TwiProwl
                                               Time.at(res['X-RateLimit-Reset'].to_i).to_s
                                              ]
     else
-      debug " HTTP #{res.code}:, #{res}"
+      debug " #{res}"
     end
     return
   end
