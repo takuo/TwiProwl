@@ -16,9 +16,8 @@ require 'yaml'
 require 'logger'
 
 STDOUT.sync = STDERR.sync = true
-Thread.abort_on_exception = true
 
-TWIPROWL_VERSION = "0.4.3"
+TWIPROWL_VERSION = "0.4.4"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
