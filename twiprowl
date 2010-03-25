@@ -1,9 +1,10 @@
 #!/usr/bin/ruby
+# -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.4
+# Version: 0.5
 #
-# Copyright (c) 2009 Takuo Kitame.
+# Copyright (c) 2009,2010 Takuo Kitame.
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
@@ -17,8 +18,23 @@ require 'logger'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.4.4"
+TWIPROWL_VERSION = "0.5.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
+
+# define Process.daemon (ruby 1.9 feature)
+unless Process.respond_to?(:daemon)
+  def Process.daemon(nochdir = nil, noclose = nil)
+    exit!(0) if fork
+    Process.setsid
+    Dir.chdir('/') unless nochdir
+    unless noclose
+      STDIN.reopen('/dev/null')  unless STDIN.closed?
+      STDOUT.reopen('/dev/null') unless STDOUT.closed?
+      STDERR.reopen('/dev/null') unless STDERR.closed?
+    end
+    0
+  end
+end
 
 class TwiProwl
   
@@ -27,8 +43,9 @@ class TwiProwl
   MENTIONS = "https://twitter.com/statuses/mentions.json?"
   DIRECT_MESSAGES = "https://twitter.com/direct_messages.json?"
   RATE_LIMIT = "https://twitter.com/account/rate_limit_status.json"
+  FOLLOWERS  = "http://api.twitter.com/1/statuses/followers/%s.json"
 
-  CheckInfo = Struct.new(:name, :last_id, :enable, :count, :interval, :priority, :thread)
+  CheckInfo = Struct.new(:name, :last_id, :enable, :count, :interval, :priority, :followers, :thread)
 
   def initialize( global, config )
     @@conf = global
@@ -47,6 +64,10 @@ class TwiProwl
     @pass = config['Pass']
     @use_proxy = config['UseProxy']
     @threshold = config['RateLimitThreshold'] ? config['RateLimitThreshold'] : 20
+    @remotter = CheckInfo.new( "Remotter" )
+    @remotter.interval = config['RemotterInterval'] ? config['RemotterInterval'] : 0
+    @remotter.followers = Array.new
+    @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
   end
 
   @@conf = Hash.new
@@ -99,6 +120,49 @@ class TwiProwl
         print Time.now.strftime( format )
       end
     end
+  end
+
+  def check_followers( checkinfo )
+    cursor = -1
+    users = Array.new
+    while cursor.to_i != 0
+      uri = URI::parse( FOLLOWERS % [ @user ] + "?cursor=#{cursor}" )
+      info "Checking Followers."
+      debug " Check #{uri.request_uri}"
+      http = http_new( uri, @use_proxy )
+      req = Net::HTTP::Get.new( uri.request_uri )
+      begin
+        res = http.request( req )
+        debug " RemotterRateLimit: %d/%d Reset at %s" % [
+                                   res['X-RateLimit-Remaining'],
+                                   res['X-RateLimit-Limit'],
+                                   Time.at(res['X-RateLimit-Reset'].to_i).to_s
+                                 ]
+      rescue 
+        error "HTTP Get Error: #{$!}"
+        return false
+      end
+      json = JSON::parse( res.body )
+      cursor = json['next_cursor'].to_i
+      users.concat( json['users'].map { |u| "@#{u['screen_name']}" } )
+    end
+    debug "Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
+    if checkinfo.followers.size > 0
+      diff = checkinfo.followers - users
+      if diff.size > 0
+        desc = diff.join(", ")
+        desc += ( diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
+        prowres = prowl( :apikey => @@prowl_conf['APIKey'],
+                         :application=> @application,
+                         :event => "You've been unfollowed",
+                         :description => desc,
+                         :priority => checkinfo.priority
+                         )
+        info "Prowling..."
+        debug "Prowl Response: #{prowres.code}"
+      end
+    end
+    checkinfo.followers = users
   end
 
   public
@@ -170,16 +234,16 @@ class TwiProwl
     return false 
  end
 
-  def check( reqstr, info )
+  def check( reqstr, checkinfo )
     return unless rate_limit_check( @threshold )
-    if info.last_id > 0
-      reqstr += "since_id=#{info.last_id}"
-      reqstr += "&count=#{info.count}"
+    if checkinfo.last_id > 0
+      reqstr += "since_id=#{checkinfo.last_id}"
+      reqstr += "&count=#{checkinfo.count}"
     else
       reqstr += "count=1"
     end
     uri = URI.parse( reqstr )
-    info "Checking: #{info.name}"
+    info "Checking: #{checkinfo.name}"
     debug " Check #{uri.request_uri}"
     http = http_new( uri, @use_proxy )
     http.use_ssl = true
@@ -212,8 +276,8 @@ class TwiProwl
             "&#{match};"
           end
         end
-        if info.last_id < 0
-          debug " #{info.name}: last_id = #{obj['id']}"
+        if checkinfo.last_id < 0
+          debug " #{checkinfo.name}: last_id = #{obj['id']}"
         else
           info " Prowling..."
           debug "  Prowling: %s %s" % [ event, desc ]
@@ -221,12 +285,12 @@ class TwiProwl
                        :application=> @application,
                        :event => event,
                        :description => desc,
-                       :priority => info.priority
+                       :priority => checkinfo.priority
                      )
-          debug "Response: #{prowres}"
+          debug "Prowl Response: #{prowres.code}"
           sleep 2
         end
-        info.last_id = obj['id']
+        checkinfo.last_id = obj['id']
       end
       
       debug " RateLimit: %d/%d Reset at %s" % [
@@ -241,6 +305,21 @@ class TwiProwl
   end
 
   def run
+    # remotter
+    if @remotter.interval > 0 &&
+        ( @remotter.thread.nil? || !@remotter.thread.alive? )
+      @remotter.thread = Thread.new do
+        loop do
+          begin
+            check_followers( @remotter )
+          rescue
+            error "RemotterError: #{$!.to_s}"
+          end
+          debug " Remotter sleep: #{@remotter.interval} secs"
+          sleep @remotter.interval
+        end
+      end
+    end
     # Mentions
     if @mentions.interval > 0 &&
         ( @mentions.thread.nil? || !@mentions.thread.alive? )
@@ -329,8 +408,7 @@ config["Debug"] = true if ProgramConfig[:debug]
 
 
 ## Daemon mode
-if Process.respond_to?('daemon') &&
-    ( ProgramConfig[:daemon] || config['Daemon'] )
+if ProgramConfig[:daemon] || config['Daemon'] 
   begin
     Process.daemon( true, true )
   rescue
@@ -338,7 +416,6 @@ if Process.respond_to?('daemon') &&
     exit 1
   end
   STDOUT.print "Daemonized. PID=#{Process.pid}\n"
-  STDOUT.flush
 end
 
 accounts = Array.new

@@ -22,3 +22,5 @@ Accounts:
   DirectPriority: 0
   RateLimitThreshold: 20
   UseProxy: false
+  RemotterInterval: 1800
+  RemotterPriority: 0
