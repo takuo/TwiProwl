@@ -68,6 +68,7 @@ class TwiProwl
     @remotter.interval = config['RemotterInterval'] ? config['RemotterInterval'] : 0
     @remotter.followers = Array.new
     @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
+    @rate = 150
   end
 
   @@conf = Hash.new
@@ -127,7 +128,7 @@ class TwiProwl
     users = Array.new
     while cursor.to_i != 0
       uri = URI::parse( FOLLOWERS % [ @user ] + "?cursor=#{cursor}" )
-      info "Checking Followers."
+      info "Checking: Followers: cursor=#{cursor}"
       debug " Check #{uri.request_uri}"
       http = http_new( uri, @use_proxy )
       req = Net::HTTP::Get.new( uri.request_uri )
@@ -209,6 +210,9 @@ class TwiProwl
 
   def rate_limit_check( threshold )
     return true if threshold == 0
+    debug " Current RateLimit Remaining: #{@rate}"
+    return (@rate > threshold)
+=begin
     uri = URI.parse( RATE_LIMIT )
     info "Checking Rate Limit Status."
     debug " Check #{uri.request_uri}"
@@ -231,6 +235,7 @@ class TwiProwl
     else
       error " HTTP #{res}"
     end
+=end
     return false 
  end
 
@@ -298,6 +303,7 @@ class TwiProwl
                                               res['X-RateLimit-Limit'],
                                               Time.at(res['X-RateLimit-Reset'].to_i).to_s
                                              ]
+      @rate = res['X-RateLimit-Remaining'].to_i
     else
       debug " #{res}"
     end
