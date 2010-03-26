@@ -98,20 +98,24 @@ class TwiProwl
     end
     unless @access_token 
       begin
+        print "** Processing oAuth authorization for #{@user}..."
 #        @access_token = consumer.get_access_token(nil, {}, {
 #          :x_auth_mode => "client_auth",
 #          :x_auth_username => @user,
 #          :x_auth_password => @pass,
 #         })
-        rt = consumer.get_request_token()
-        puts "Access this URL and approve => #{rt.authorize_url}"
-        puts ""
-        print "Please enter the PIN code: "
-        pin = gets.chomp.strip
-        @access_token = rt.get_access_token(:oauth_verifier => pin)
-        puts ""
+#        rt = consumer.get_request_token()
+        @access_token = get_access_token(consumer)
+#        puts "Access this URL and approve => #{rt.authorize_url}"
+#        puts ""
+#        print "Please enter the PIN code: "
+#        pin = gets.chomp.strip
+#        @access_token = rt.get_access_token(:oauth_verifier => pin)
+#        puts ""
+        print " done.\n"
         puts "== Add following entries(+) into config file to skip this process =="
         puts "  User: #{@user}"
+        puts "- Pass: ******"
         puts "+ AccessToken: #{@access_token.token}"
         puts "+ AccessTokenSecret: #{@access_token.secret}"
         puts ""
@@ -127,6 +131,53 @@ class TwiProwl
   @@prowl_conf = nil
 
   private
+  def get_access_token(consumer)
+    rt = consumer.get_request_token
+    u = URI::parse rt.authorize_url
+    http =  http_new( u, @use_proxy )
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    req = Net::HTTP::Post.new(u.request_uri)
+    res = http.request(req)
+    raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
+    at = ot = nil
+    res.body.split(/\n/).each do |line|
+      if /name="authenticity_token" type="hidden" value="([^"]+)"/ =~ line
+        at = $1
+      end
+      if /name="oauth_token" type="hidden" value="([^"]+)"/ =~ line
+        ot = $1
+      end
+      break if at && ot
+    end
+    raise RuntimeError, "Could not get tokens" if at.nil? or ot.nil?
+    query = [ "authenticity_token=#{at}",
+          "oauth_token=#{ot}",
+          "session[username_or_email]=#{@user}",
+          "session[password]=#{@pass}",
+          "submit=Allow" ].join("&")
+    u = URI::parse( "https://api.twitter.com/oauth/authorize" ) 
+    http = http_new( u, @use_proxy )
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    res = http.post(u.request_uri, query)
+    raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
+    pin = nil
+    lines = res.body.split(/\n/)
+    i = 0
+    while i < lines.size
+      if lines[i] =~ /oauth_pin/
+        pin = lines[i+1].chomp.strip
+        break
+      end
+      i+=1;
+    end
+    if pin
+      token = rt.get_access_token( :oauth_verifier => pin ) 
+    end 
+    return token
+  end
+
   def post_escape( string )
     string.gsub(/([^ a-zA-Z0-9_.-]+)/) do
       '%' + $1.unpack('H2' * $1.bytesize).join('%').upcase
@@ -478,6 +529,7 @@ Signal.trap(:TERM) {
   exit
 }
 
+print "TwiProwl is running.\n"
 loop do
   accounts.each do |ac|
     ac.run
