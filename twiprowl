@@ -120,8 +120,8 @@ class TwiProwl
         puts "+ AccessTokenSecret: #{@access_token.secret}"
         puts ""
       rescue OAuth::Unauthorized
-        puts "Authorizion fail"
-        retry
+        puts "Failed to OAuth due to server error."
+        exit 1
       end
     end
   end
