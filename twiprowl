@@ -9,16 +9,20 @@
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
 
+$:.unshift File.dirname(__FILE__)
+
 require 'optparse'
 require 'net/https'
 require 'json'
 require 'uri'
 require 'yaml'
 require 'logger'
+require 'oauth'
+require 'highline'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.5.1"
+TWIPROWL_VERSION = "0.6.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -45,6 +49,10 @@ class TwiProwl
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USERSHOW  = "#{API_BASE}users/show/%s.json"
 
+  CONSUMER_KEY = 'nqjjOwQ207D1r3sPVgRhA'
+  CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
+  ACCESS_SITE = 'https://api.twitter.com'
+
   CheckInfo = Struct.new(:name, :last_id, :enable, :count, :interval, :priority, :followers, :req_auth, :thread)
 
   def initialize( global, config )
@@ -70,6 +78,49 @@ class TwiProwl
     @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
     @remotter.req_auth = false
     @rate = 150
+    access_token = config["AccessToken"] ? config["AccessToken"] : nil
+    accees_token_secret = config["AccessTokenSecret"] ? config["AccessTokenSecret"] : nil
+
+    params = {
+     :site => ACCESS_SITE,
+     :proxy => @use_proxy ? @@prowl_conf["ProxyURI"] : nil
+    }
+
+    consumer = OAuth::Consumer.new( CONSUMER_KEY, CONSUMER_SECRET, params )
+    begin
+      if access_token && accees_token_secret
+        @access_token = OAuth::AccessToken.new(
+          consumer, access_token, accees_token_secret
+        )
+      end
+    rescue
+       puts "Failed to getting Access Token."
+       @access_token = nil
+    end
+    unless @access_token 
+      begin
+        @pass = HighLine.new.ask("Please enter twitter password for #{@user}: ") { |q| q.echo = '*' }
+#        @access_token = consumer.get_access_token(nil, {}, {
+#          :x_auth_mode => "client_auth",
+#          :x_auth_username => @user,
+#          :x_auth_password => @pass,
+#         })
+        rt = consumer.get_request_token()
+        puts "Access this URL and approve => #{rt.authorize_url}"
+        puts ""
+        pin = HighLine.new.ask("Please input PIN code: ")
+        @access_token = rt.get_access_token(:oauth_verifier => pin)
+        puts ""
+        puts "== Add following entries(+) into config file to skip this process =="
+        puts "  User: #{@user}"
+        puts "+ AccessToken: #{@access_token.token}"
+        puts "+ AccessTokenSecret: #{@access_token.secret}"
+        puts ""
+      rescue OAuth::Unauthorized
+        puts "Authorizion fail"
+        retry
+      end
+    end
   end
 
   @@conf = Hash.new
@@ -93,6 +144,9 @@ class TwiProwl
     unless @@prowl_conf.has_key?('APIKey')
       STDERR.printf "Configuration Error: APIKey must be given.\n"
       exit 1
+    end
+    if @@prowl_conf.has_key?('ProxyURL')
+       @@prowl_conf['ProxyURI'] = URI::parse(@@prowl_conf['ProxyURL'])
     end
     _init_logger()
   end
@@ -127,15 +181,18 @@ class TwiProwl
   def get_json( url, auth = false )
     uri = URI::parse( url )
     debug " Check #{uri.request_uri}"
-    http = http_new( uri, @use_proxy )
-    if uri.scheme == "https"
-      http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-    end
-    req = Net::HTTP::Get.new( uri.request_uri )
-    req.basic_auth( @user, @pass ) if auth
     begin
-      res = http.request( req )
+      if auth
+        res = @access_token.get( url )
+      else
+        http = http_new( uri, @use_proxy )
+        if uri.scheme == "https"
+          http.use_ssl = true
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+        end
+        req = Net::HTTP::Get.new( uri.request_uri )
+        res = http.request( req )
+      end
       debug " RateLimit: %d/%d Reset at %s" % [
                                                res['X-RateLimit-Remaining'],
                                                res['X-RateLimit-Limit'],
@@ -207,12 +264,9 @@ class TwiProwl
   end
 
   def http_new( uri, use_proxy = true )
-    if @@prowl_conf['ProxyHost'] and use_proxy
-      http = Net::HTTP::Proxy(@@prowl_conf['ProxyHost'],
-                              @@prowl_conf['ProxyPort'],
-                              @@prowl_conf['ProxyUser'],
-                              @@prowl_conf['ProxyPass']).new( uri.host,
-                                                              uri.port )
+    if @@prowl_conf['ProxyURI'] and use_proxy
+      pu = @@prowl_conf['ProxyURI']
+      http = Net::HTTP::Proxy( pu.host, pu.port, pu.user, pu.password ).new( uri.host, uri.port )
     else
       http = Net::HTTP.new( uri.host, uri.port )
     end
@@ -400,6 +454,13 @@ config = YAML.load_file( filename )
 config["Debug"] = true if ProgramConfig[:debug]
 
 
+accounts = Array.new
+config['Accounts'].each do |account|
+  ac = TwiProwl.new( config, account )
+#  ac.run
+  accounts.push ac
+end
+
 ## Daemon mode
 if ProgramConfig[:daemon] || config['Daemon'] 
   begin
@@ -411,13 +472,6 @@ if ProgramConfig[:daemon] || config['Daemon']
   STDOUT.print "Daemonized. PID=#{Process.pid}\n"
 end
 
-accounts = Array.new
-config['Accounts'].each do |account|
-  ac = TwiProwl.new( config, account )
-  ac.run
-  accounts.push ac
-end
-
 Signal.trap(:INT) {
   exit
 }
@@ -426,10 +480,10 @@ Signal.trap(:TERM) {
 }
 
 loop do
-  sleep 60
   accounts.each do |ac|
     ac.run
   end
+  sleep 60
 end
 
 # __END__
