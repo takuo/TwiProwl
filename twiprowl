@@ -39,6 +39,27 @@ unless Process.respond_to?(:daemon)
   end
 end
 
+# oAuth fix for >= 1.9.0
+if RUBY_VERSION >= "1.9.0"
+  module HMAC
+    class Base
+      def set_key(key)
+        key = @algorithm.digest(key) if key.size > @block_size
+        key_xor_ipad = Array.new(@block_size, 0x36)
+        key_xor_opad = Array.new(@block_size, 0x5c)
+        key.bytes.each_with_index do |value, index|
+          key_xor_ipad[index] ^= value
+          key_xor_opad[index] ^= value
+        end
+        @key_xor_ipad = key_xor_ipad.pack('c*')
+        @key_xor_opad = key_xor_opad.pack('c*')
+        @md = @algorithm.new
+        @initialized = true
+      end
+    end
+  end
+end
+
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
@@ -371,7 +392,7 @@ class TwiProwl
       end
 
       desc = obj['text']
-      desc.gsub!(/&(amp|quot|gt|lt);/n) do
+      desc.gsub!(/&(amp|quot|gt|lt);/u) do
         match = $1.dup
         case match
         when 'amp'  then '&'
