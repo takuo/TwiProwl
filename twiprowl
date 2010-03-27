@@ -156,8 +156,6 @@ class TwiProwl
     rt = consumer.get_request_token
     u = URI::parse rt.authorize_url
     http =  http_new( u, @use_proxy )
-    http.use_ssl = true
-    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     req = Net::HTTP::Post.new(u.request_uri)
     res = http.request(req)
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
@@ -177,10 +175,8 @@ class TwiProwl
           "session[username_or_email]=#{@user}",
           "session[password]=#{@pass}",
           "submit=Allow" ].join("&")
-    u = URI::parse( "https://api.twitter.com/oauth/authorize" ) 
+    u = URI::parse( "#{ACCESS_SITE}/oauth/authorize" ) 
     http = http_new( u, @use_proxy )
-    http.use_ssl = true
-    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     res = http.post(u.request_uri, query)
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
     pin = nil
@@ -257,10 +253,6 @@ class TwiProwl
         res = @access_token.get( url )
       else
         http = http_new( uri, @use_proxy )
-        if uri.scheme == "https"
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-        end
         req = Net::HTTP::Get.new( uri.request_uri )
         res = http.request( req )
       end
@@ -341,6 +333,10 @@ class TwiProwl
     else
       http = Net::HTTP.new( uri.host, uri.port )
     end
+    if uri.scheme == "https"
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    end
     return http
   end
 
@@ -349,8 +345,6 @@ class TwiProwl
       info " Prowling..."
       uri = URI::parse( PROWL_API_ADD )
       http = http_new( uri )
-      http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
       request = Net::HTTP::Post.new( uri.request_uri )
       request.content_type = "application/x-www-form-urlencoded"
       query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
@@ -365,7 +359,6 @@ class TwiProwl
     return true if threshold == 0
     debug " Current RateLimit Remaining: #{@rate}"
     return (@rate > threshold)
-    return false 
  end
 
   def check( reqstr, checkinfo )
@@ -431,7 +424,7 @@ class TwiProwl
             check_followers( @remotter )
           rescue
             error "RemotterError: #{$!.to_s}"
-            error $!.backtrace.join("\n")
+            debug $!.backtrace.join("\n")
           end
           debug " Remotter sleep: #{@remotter.interval} secs"
           sleep @remotter.interval
