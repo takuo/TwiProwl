@@ -1,8 +1,12 @@
 = Instruction =
 
+Version : 0.6.1
+
 1. install some ruby libraries
  - openssl
  - json
+
+   $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 
 
 2. copy config.yml to ~/.twiprowl.conf and edit it.
 
