@@ -16,10 +16,7 @@ Debug: <Debugging ouput to log. true/false >
 
 Prowl:
  APIKey: <the Prowl API Key>
- ProxyHost: <HTTP Proxy host address if it's available>
- ProxyPort: <HTTP Proxy port number>
- ProxyUser: <Authentication username for HTTP Proxy if it's required>
- ProxyPass: <Authentication password for HTTP Proxy if it's required>
+ ProxyURL: <HTTP Proxy like http://user:pass@host:port/ >
 
 Accounts:
  -
@@ -33,7 +30,9 @@ Accounts:
   DirectCount: <limit to get new DirectMessage (int)>
   DirectInterval: <check interval (sec)> # 0 for disable it, default: 600
   DirectPriority: <-2 to 2> # prowl priority, default 0
-  UseProxy: <true|false> # use HTTP Proxy?
+  UseProxy: <true|false> # use HTTP Proxy to access Twitter API
   RateLimitThreshold: <0 to 150> # don't check when RateLimitStatus is under the value, default: 20
+  RemotterInterval: <check interval (sec) for unfollow> # 0 for disable it. default: 0
+  RemotterPriority: <-2 to 2> # prowl priority, default 0
  - 
   <Other account config here>

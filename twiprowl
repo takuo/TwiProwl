@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.5
+# Version: 0.6
 #
 # Copyright (c) 2009,2010 Takuo Kitame.
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
+
+$:.unshift File.dirname(__FILE__)
 
 require 'optparse'
 require 'net/https'
@@ -16,11 +18,11 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'oauth'
-require 'highline'
+require 'pstore'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.6.0"
+TWIPROWL_VERSION = "0.6.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -38,6 +40,27 @@ unless Process.respond_to?(:daemon)
   end
 end
 
+# oAuth fix for >= 1.9.0
+if RUBY_VERSION >= "1.9.0"
+  module HMAC
+    class Base
+      def set_key(key)
+        key = @algorithm.digest(key) if key.size > @block_size
+        key_xor_ipad = Array.new(@block_size, 0x36)
+        key_xor_opad = Array.new(@block_size, 0x5c)
+        key.bytes.each_with_index do |value, index|
+          key_xor_ipad[index] ^= value
+          key_xor_opad[index] ^= value
+        end
+        @key_xor_ipad = key_xor_ipad.pack('c*')
+        @key_xor_opad = key_xor_opad.pack('c*')
+        @md = @algorithm.new
+        @initialized = true
+      end
+    end
+  end
+end
+
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
@@ -45,7 +68,8 @@ class TwiProwl
   MENTIONS = "#{API_BASE}statuses/mentions.json?"
   DIRECT_MESSAGES = "#{API_BASE}direct_messages.json?"
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
-  USERSHOW  = "#{API_BASE}users/show/%s.json"
+  USER_SHOW  = "#{API_BASE}users/show/%s.json"
+  RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
 
   CONSUMER_KEY = 'nqjjOwQ207D1r3sPVgRhA'
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
@@ -67,7 +91,7 @@ class TwiProwl
     @direct.interval = config['DirectInterval'] ? config['DirectInterval'] : 600
     @direct.priority = config['DirectPriority'] ? config['DirectPriority'] : 0
     @user = config['User']
-    @pass = config['Pass']
+    pass = config['Pass']
     @use_proxy = config['UseProxy']
     @threshold = config['RateLimitThreshold'] ? config['RateLimitThreshold'] : 20
     @remotter = CheckInfo.new( "Remotter" )
@@ -75,9 +99,31 @@ class TwiProwl
     @remotter.followers = Array.new
     @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
     @remotter.req_auth = false
-    @rate = 150
-    access_token = config["AccessToken"] ? config["AccessToken"] : nil
-    accees_token_secret = config["AccessTokenSecret"] ? config["AccessTokenSecret"] : nil
+
+    process_xauth( @user, pass )
+    rate_limit_status( true )
+  end
+
+  @@conf = Hash.new
+  @@logger = nil
+  @@prowl_conf = nil
+
+  private
+  def process_xauth( user, pass )
+
+    pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
+    access_token = nil
+    access_token_secret = nil
+
+    if File.exist?( pdbfile )
+      pdb = PStore.new( pdbfile )
+      pdb.transaction do
+        if pdb.root?( :tokens ) and pdb[ :tokens ][ user ]
+          access_token = pdb[ :tokens ][ user ][ :access_token ]
+          access_token_secret = pdb[ :tokens ][ user ][ :access_token_secret ]
+        end
+      end
+    end
 
     params = {
      :site => ACCESS_SITE,
@@ -86,46 +132,59 @@ class TwiProwl
 
     consumer = OAuth::Consumer.new( CONSUMER_KEY, CONSUMER_SECRET, params )
     begin
-      if access_token && accees_token_secret
+      if access_token && access_token_secret
         @access_token = OAuth::AccessToken.new(
-          consumer, access_token, accees_token_secret
+          consumer, access_token, access_token_secret
         )
       end
     rescue
-       puts "Failed to getting Access Token."
+       print "Failed to getting Access Token.\n"
        @access_token = nil
     end
-    unless @access_token 
+    unless @access_token
+      unless @pass
+        print "Failed to oAuth. Please add `Pass' into config file or...\n"
+        print "Enter the password for #{user} now: "
+        revertstty = `stty -g` rescue nil
+        `stty -echo` rescue nil
+        pass = gets.chomp.strip
+        print "\n"
+        `stty #{revertstty}` rescue nil
+      end
       begin
-        @pass = HighLine.new.ask("Please enter twitter password for #{@user}: ") { |q| q.echo = '*' }
-#        @access_token = consumer.get_access_token(nil, {}, {
-#          :x_auth_mode => "client_auth",
-#          :x_auth_username => @user,
-#          :x_auth_password => @pass,
-#         })
-        rt = consumer.get_request_token()
-        puts "Access this URL and approve => #{rt.authorize_url}"
-        puts ""
-        pin = HighLine.new.ask("Please input PIN code: ")
-        @access_token = rt.get_access_token(:oauth_verifier => pin)
-        puts ""
-        puts "== Add following entries(+) into config file to skip this process =="
-        puts "  User: #{@user}"
-        puts "+ AccessToken: #{@access_token.token}"
-        puts "+ AccessTokenSecret: #{@access_token.secret}"
-        puts ""
+        print "** Processing xAuth authorization for #{user}..."
+        @access_token = consumer.get_access_token(nil, {}, {
+          :x_auth_mode => "client_auth",
+          :x_auth_username => user,
+          :x_auth_password => pass,
+         })
+        print " done.\n"
+        pdb = PStore.new( pdbfile )
+        pdb.transaction do
+          pdb[ :tokens ] = Hash.new unless pdb.root?( :tokens )
+          pdb[ :tokens ][ user ] = {
+            :access_token => @access_token.token,
+            :access_token_secret => @access_token.secret
+          }
+          pdb.commit
+        end
+        File.chmod( 0600, File.join( pdbfile ) )
       rescue OAuth::Unauthorized
-        puts "Failed to OAuth"
-        retry
+        print "Failed to OAuth due to wrong password or the server error.\n"
+        exit 1
       end
     end
+    print "You can/should remove `Pass' for #{user} from config file.\n" if pass
   end
 
-  @@conf = Hash.new
-  @@logger = nil
-  @@prowl_conf = nil
-
-  private
+  def rate_limit_status( auth = false )
+    json, res = get_json( RATE_LIMIT, auth )
+    if res.code == "200"
+      @rate = json['remaining_hits']
+      @reset_at = Time.at( json['reset_time_in_seconds'] )
+    end
+  end
+  
   def post_escape( string )
     string.gsub(/([^ a-zA-Z0-9_.-]+)/) do
       '%' + $1.unpack('H2' * $1.bytesize).join('%').upcase
@@ -184,18 +243,16 @@ class TwiProwl
         res = @access_token.get( url )
       else
         http = http_new( uri, @use_proxy )
-        if uri.scheme == "https"
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-        end
         req = Net::HTTP::Get.new( uri.request_uri )
         res = http.request( req )
       end
-      debug " RateLimit: %d/%d Reset at %s" % [
-                                               res['X-RateLimit-Remaining'],
-                                               res['X-RateLimit-Limit'],
-                                               Time.at(res['X-RateLimit-Reset'].to_i).to_s
-                                              ]
+      if res['X-RateLimit-Remaining']
+        debug " RateLimit: %d/%d Reset at %s" % [
+                                                 res['X-RateLimit-Remaining'],
+                                                 res['X-RateLimit-Limit'],
+                                                 Time.at(res['X-RateLimit-Reset'].to_i).to_s
+                                                ]
+      end
     rescue 
       error "HTTP Get Error: #{$!}"
       return [ nil, res ]
@@ -224,7 +281,7 @@ class TwiProwl
       if diff.size > 0
         screen_names = Array.new
         diff.each do |id|
-          url = USERSHOW % [ id.to_s ]
+          url = USER_SHOW % [ id.to_s ]
           json, res = get_json( url )
           screen_names << "@#{json['screen_name']}"
         end
@@ -268,6 +325,10 @@ class TwiProwl
     else
       http = Net::HTTP.new( uri.host, uri.port )
     end
+    if uri.scheme == "https"
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    end
     return http
   end
 
@@ -276,8 +337,6 @@ class TwiProwl
       info " Prowling..."
       uri = URI::parse( PROWL_API_ADD )
       http = http_new( uri )
-      http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
       request = Net::HTTP::Post.new( uri.request_uri )
       request.content_type = "application/x-www-form-urlencoded"
       query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
@@ -288,11 +347,12 @@ class TwiProwl
     end
   end
 
-  def rate_limit_check( threshold )
+  def rate_limit_check( threshold, auth = true )
     return true if threshold == 0
     debug " Current RateLimit Remaining: #{@rate}"
-    return (@rate > threshold)
-    return false 
+    return true if @rate > threshold
+    rate_limit_status( auth )
+    @rate > threshold
  end
 
   def check( reqstr, checkinfo )
@@ -308,6 +368,7 @@ class TwiProwl
 
     json, res = get_json( reqstr, true )
     @rate = res['X-RateLimit-Remaining'].to_i
+    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i)
     return if json.nil?
 
     json.reverse.each do |obj|
@@ -319,7 +380,7 @@ class TwiProwl
       end
 
       desc = obj['text']
-      desc.gsub!(/&(amp|quot|gt|lt);/n) do
+      desc.gsub!(/&(amp|quot|gt|lt);/u) do
         match = $1.dup
         case match
         when 'amp'  then '&'
@@ -358,7 +419,7 @@ class TwiProwl
             check_followers( @remotter )
           rescue
             error "RemotterError: #{$!.to_s}"
-            error $!.backtrace.join("\n")
+            debug $!.backtrace.join("\n")
           end
           debug " Remotter sleep: #{@remotter.interval} secs"
           sleep @remotter.interval
@@ -477,6 +538,7 @@ Signal.trap(:TERM) {
   exit
 }
 
+print "TwiProwl is running.\n"
 loop do
   accounts.each do |ac|
     ac.run
