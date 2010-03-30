@@ -1,0 +1,7 @@
+2010-03-30  Takuo Kitame  <kitame@debian.org>
+
+	* 0.6.1
+	* twiprowl: merge oauth branch, xAuth integration.
+	the access_token will be stored into ENV['HOME']/.twiprowl.pdb
+	* config.yml: remove Proxy{Host,Port,User,Pass}, use ProxyURL instead.
+	* minor fixes.
