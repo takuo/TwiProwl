@@ -283,7 +283,11 @@ class TwiProwl
         diff.each do |id|
           url = USER_SHOW % [ id.to_s ]
           json, res = get_json( url )
-          screen_names << "@#{json['screen_name']}"
+          if json
+            screen_names << "@#{json['screen_name']}"
+          else
+            screen_names << "ID:#{id}"
+          end
         end
         if screen_names.size > 1
           b = screen_names.pop
