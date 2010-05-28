@@ -11,6 +11,7 @@
 
 $:.unshift File.dirname(__FILE__)
 
+require 'rubygems'
 require 'optparse'
 require 'net/https'
 require 'json'
@@ -242,7 +243,7 @@ class TwiProwl
 
   def get_json( url, auth = false )
     uri = URI::parse( url )
-    debug " Check #{uri.request_uri}"
+    debug " #{@user} Check #{uri.request_uri}"
     begin
       if auth
         res = @access_token.get( url )
@@ -252,7 +253,7 @@ class TwiProwl
         res = http.request( req )
       end
       if res['X-RateLimit-Remaining']
-        debug " RateLimit: %d/%d Reset at %s" % [
+        debug " #{@user} RateLimit: %d/%d Reset at %s" % [
                                                  res['X-RateLimit-Remaining'],
                                                  res['X-RateLimit-Limit'],
                                                  Time.at(res['X-RateLimit-Reset'].to_i).to_s
@@ -269,7 +270,7 @@ class TwiProwl
     cursor = -1
     users = Array.new
     while cursor != 0
-      info "Checking: Followers: cursor=#{cursor}"
+      info " #{@user} Checking: Followers: cursor=#{cursor}"
       url = FOLLOWERS % [ @user, cursor ]
       json, res = get_json( url, checkinfo.req_auth )
       if res.code == "401"
@@ -280,7 +281,7 @@ class TwiProwl
       cursor = json['next_cursor']
       users.concat( json['ids'].map{ |id| "#{id}" } ) # .map { |u| "@#{u['screen_name']}" } )
     end
-    debug " Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
+    debug " #{@user} Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
     if checkinfo.followers.size > 0
       diff = checkinfo.followers - users
       if diff.size > 0
@@ -343,14 +344,14 @@ class TwiProwl
 
   def prowl( params={} )
     begin
-      info " Prowling..."
+      info " #{@user} Prowling..."
       uri = URI::parse( PROWL_API_ADD )
       http = http_new( uri )
       request = Net::HTTP::Post.new( uri.request_uri )
       request.content_type = "application/x-www-form-urlencoded"
       query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
       res = http.request( request, query.join( '&' ) )
-      debug " Prowl Response: #{res.code}"
+      debug " #{@user} Prowl Response: #{res.code}"
     rescue
       error "Error while Prowling: #{$!}"
     end
@@ -358,7 +359,7 @@ class TwiProwl
 
   def rate_limit_check( threshold, auth = true )
     return true if threshold == 0
-    debug " Current RateLimit Remaining: #{@rate}"
+    debug " #{@user} Current RateLimit Remaining: #{@rate}"
     return true if @rate > threshold
     rate_limit_status( auth )
     @rate > threshold
@@ -366,7 +367,7 @@ class TwiProwl
 
   def check( reqstr, checkinfo )
     return unless rate_limit_check( @threshold )
-    info "Checking: #{checkinfo.name}"
+    info " #{@user} Checking: #{checkinfo.name}"
 
     if checkinfo.last_id > 0
       reqstr += "since_id=#{checkinfo.last_id}"
@@ -402,9 +403,9 @@ class TwiProwl
       end
       
       if checkinfo.last_id < 0
-        debug " #{checkinfo.name}: last_id = #{obj['id']}"
+        debug " #{@user} #{checkinfo.name}: last_id = #{obj['id']}"
       else
-        debug "  Prowling: %s %s" % [ event, desc ]
+        debug " #{@user} Prowling: %s %s" % [ event, desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => event,
@@ -430,7 +431,7 @@ class TwiProwl
             error "RemotterError: #{$!.to_s}"
             debug $!.backtrace.join("\n")
           end
-          debug " Remotter sleep: #{@remotter.interval} secs"
+          debug " #{@user} Remotter sleep: #{@remotter.interval} secs"
           sleep @remotter.interval
         end
       end
@@ -438,16 +439,16 @@ class TwiProwl
     # Mentions
     if @mentions.interval > 0 &&
         ( @mentions.thread.nil? || !@mentions.thread.alive? )
-      info "Start thread for Mentions."
+      info " #{@user} Start thread for Mentions."
       @mentions.thread = Thread.new do
         loop do
           begin
             check( MENTIONS, @mentions )
-            debug " Mentions last_id: #{@mentions.last_id}"
+            debug " #{@user} Mentions last_id: #{@mentions.last_id}"
           rescue
             error " MentionsError: " + $!.to_s
           end
-          debug " Mentions sleep: #{@mentions.interval} secs"
+          debug " #{@user} Mentions sleep: #{@mentions.interval} secs"
           sleep @mentions.interval
         end
       end
@@ -456,16 +457,16 @@ class TwiProwl
     # DirectMessage
     if @direct.interval > 0 &&
         ( @direct.thread.nil? || !@direct.thread.alive? )
-      info "Start thread for DirectMessage."
+      info " #{@user} Start thread for DirectMessage."
       @direct.thread = Thread.new do
         loop do
           begin
             check( DIRECT_MESSAGES, @direct )
-            debug " Direct last_id: #{@direct.last_id}"
+            debug " #{@user} Direct last_id: #{@direct.last_id}"
           rescue
             error " DirectError: " + $!.to_s
           end
-          debug " Direct sleep: #{@direct.interval} secs"
+          debug " #{@user} Direct sleep: #{@direct.interval} secs"
           sleep @direct.interval
         end
       end
@@ -473,16 +474,16 @@ class TwiProwl
     # Retweets
     if @retweets.interval > 0 &&
         ( @retweets.thread.nil? || !@retweets.thread.alive? )
-      info "Start thread for Retweets."
+      info " #{@user} Start thread for Retweets."
       @retweets.thread = Thread.new do
         loop do
           begin
             check( RETWEETS, @retweets )
-            debug " Retweets last_id: #{@retweets.last_id}"
+            debug " #{@user} Retweets last_id: #{@retweets.last_id}"
           rescue
             error " Retweets: " + $!.to_s
           end
-          debug " Retweets sleep: #{@retweets.interval} secs"
+          debug " #{@user} Retweets sleep: #{@retweets.interval} secs"
           sleep @retweets.interval
         end
       end
