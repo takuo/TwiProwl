@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 0.6.1
+Version : 0.6.1.1
 
 1. install some ruby libraries
  - openssl
@@ -34,6 +34,9 @@ Accounts:
   DirectCount: <limit to get new DirectMessage (int)>
   DirectInterval: <check interval (sec)> # 0 for disable it, default: 600
   DirectPriority: <-2 to 2> # prowl priority, default 0
+  RetweetsCount: <limit to get new retweets (int)>
+  RetweetsInterval: <check interval (sec)> # 0 for disable it, default: 300
+  RetweetsPriority: <-2 to 2> # prowl priority, default 0
   UseProxy: <true|false> # use HTTP Proxy to access Twitter API
   RateLimitThreshold: <0 to 150> # don't check when RateLimitStatus is under the value, default: 20
   RemotterInterval: <check interval (sec) for unfollow> # 0 for disable it. default: 0
