@@ -17,6 +17,9 @@ Accounts:
   DirectCount: 10
   DirectInterval: 600
   DirectPriority: 0
+  RetweetsCount: 10
+  RetweetsInterval: 300
+  RetweetsPriority: 1
   RateLimitThreshold: 20
   UseProxy: false
   RemotterInterval: 1800
