@@ -385,7 +385,7 @@ class TwiProwl
 
       if obj.has_key?('sender_screen_name')
         event = " Direct: " + obj['sender_screen_name']
-      elsif
+      else
         event = " Mentions: " + obj['user']['screen_name']
       end
 
