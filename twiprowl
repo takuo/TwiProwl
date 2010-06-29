@@ -23,7 +23,7 @@ require 'pstore'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.6.1.1"
+TWIPROWL_VERSION = "0.7.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -190,7 +190,7 @@ class TwiProwl
       @reset_at = Time.at( json['reset_time_in_seconds'] )
     end
   end
-  
+
   def post_escape( string )
     string.gsub(/([^ a-zA-Z0-9_.-]+)/) do
       '%' + $1.unpack('H2' * $1.bytesize).join('%').upcase
@@ -383,11 +383,8 @@ class TwiProwl
 
     json.reverse.each do |obj|
 
-      if obj.has_key?('sender_screen_name')
-        event = " Direct: " + obj['sender_screen_name']
-      else
-        event = " Mentions: " + obj['user']['screen_name']
-      end
+      screen_name = obj.has_key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
+      event = "#{checkinfo.name}: #{screen_name}"
 
       desc = obj['text']
       desc.gsub!(/&(amp|quot|gt|lt);/u) do
@@ -401,7 +398,7 @@ class TwiProwl
           "&#{match};"
         end
       end
-      
+
       if checkinfo.last_id < 0
         debug " #{@user} #{checkinfo.name}: last_id = #{obj['id']}"
       else
@@ -415,7 +412,7 @@ class TwiProwl
         sleep 2
       end
       checkinfo.last_id = obj['id']
-    end  
+    end
     return
   end
 
