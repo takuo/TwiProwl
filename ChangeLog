@@ -1,3 +1,8 @@
+2010-06-30  Takuo Kitame  <kitame@debian.org>
+
+	* 0.7.1
+	* remove unnecessary require 'rubygems'
+
 2010-06-29  Takuo Kitame  <kitame@debian.org>
 
 	* 0.7.0
