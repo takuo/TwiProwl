@@ -1,8 +1,8 @@
-#!/usr/bin/ruby
+#!/usr/bin/ruby1.9.1
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.6
+# Version: 0.7
 #
 # Copyright (c) 2009,2010 Takuo Kitame.
 #
