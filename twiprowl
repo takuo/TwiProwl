@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.7
+# Version: 0.8
 #
 # Copyright (c) 2009,2010 Takuo Kitame.
 #
@@ -22,7 +22,7 @@ require 'pstore'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.7.0"
+TWIPROWL_VERSION = "0.8.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -68,6 +68,7 @@ class TwiProwl
   MENTIONS = "#{API_BASE}statuses/mentions.json?"
   DIRECT_MESSAGES = "#{API_BASE}direct_messages.json?"
   RETWEETS = "#{API_BASE}statuses/retweets_of_me.json?"
+  MEMBERSHIP = "#{API_BASE}lists/memberships.json?screen_name=%s&cursor=%d"
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
   RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
@@ -84,6 +85,7 @@ class TwiProwl
     @mentions = CheckInfo.new( "Mentions", -1 )
     @direct   = CheckInfo.new( "Direct", -1 )
     @retweets = CheckInfo.new( "Retweets", -1 )
+    @membership = CheckInfo.new( "Membership", -1 )
     @application = config['Application'] ? config['Application'] : "Twitter"
 
     @mentions.count = config['MentionsCount'] ? config['MentionsCount'] : 10
@@ -95,6 +97,9 @@ class TwiProwl
     @retweets.count = config['RetweetsCount'] ? config['RetweetsCount'] : 10
     @retweets.interval = config['RetweetsInterval'] ? config['RetweetsInterval'] : 300
     @retweets.priority = config['RetweetsPriority'] ? config['RetweetsPriority'] : 0
+    @membership.interval = config['MembershipInterval'] ? config['MembershipInterval'] : 300
+    @membership.priority = config['MembershipPriority'] ? config['MembershipPriority'] : 0
+    @membership.followers = Array.new
     @user = config['User']
     pass = config['Pass']
     @use_proxy = config['UseProxy']
@@ -258,7 +263,7 @@ class TwiProwl
                                                  Time.at(res['X-RateLimit-Reset'].to_i).to_s
                                                 ]
       end
-    rescue 
+    rescue
       error "HTTP Get Error: #{$!}"
       return [ nil, res ]
     end
@@ -312,6 +317,61 @@ class TwiProwl
       end
     end
     checkinfo.followers = users
+  end
+
+  def check_membership( checkinfo )
+    cursor = -1
+    lists = Array.new
+    while cursor != 0
+      info " #{@user} Checking: Membership: cursor=#{cursor}"
+      url = MEMBERSHIP % [ @user, cursor ]
+      json, res = get_json( url, checkinfo.req_auth )
+      if res.code == "401"
+        checkinfo.req_auth = true
+        json, res = get_json( url, checkinfo.req_auth )
+      end
+      return if json.nil?
+      lists.concat( json['lists'].map{ |list| "#{list['full_name']}" } )
+      cursor = json['next_cursor']
+    end
+    debug " #{@user} Current memberships: #{lists.size}, Previous: #{checkinfo.followers.size}"
+    if checkinfo.followers.size > 0
+      diff = checkinfo.followers - lists
+      if diff.size > 0
+        if diff.size > 1
+          b = diff.pop
+          string = diff.join(", ")
+          string += " and #{b}"
+        else
+          string = diff[0]
+        end
+        desc = "You have been removed from: " +  string
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+      end
+      diff = lists - checkinfo.followers
+      if diff.size > 0
+        if diff.size > 1
+          b = diff.pop
+          string = diff.join(", ")
+          string += " and #{b}"
+        else
+          string = diff[0]
+        end
+        desc = "You have been added to: " +  string
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+      end
+    end
+    checkinfo.followers = lists
   end
 
   public
@@ -416,6 +476,22 @@ class TwiProwl
   end
 
   def run
+    # membership
+    if @membership.interval > 0 &&
+        ( @membership.thread.nil? || !@membership.thread.alive? )
+      @membership.thread = Thread.new do
+        loop do
+          begin
+            check_membership( @membership )
+          rescue
+            error "MembershipError: #{$!.to_s}"
+            debug $!.backtrace.join("\n")
+          end
+          debug " #{@user} Membership sleep: #{@membership.interval} secs"
+          sleep @membership.interval
+        end
+      end
+    end
     # remotter
     if @remotter.interval > 0 &&
         ( @remotter.thread.nil? || !@remotter.thread.alive? )
