@@ -567,6 +567,7 @@ else
     break
   end
 end
+
 if filename.nil?
   STDERR.print "No configuration file exist.\n"
   STDERR.print "File candidates are:\n"
@@ -578,7 +579,6 @@ end
 STDOUT.print "LoadConf: #{filename}\n" 
 config = YAML.load_file( filename )
 config["Debug"] = true if ProgramConfig[:debug]
-
 
 accounts = Array.new
 config['Accounts'].each do |account|
@@ -610,8 +610,8 @@ accounts.each do |ac|
   ac.thread = Thread.new do
     ac.run
   end
-
 end
+
 # main loop thread
 loop do
   sleep 60
