@@ -155,7 +155,7 @@ class TwiProwl
        @access_token = nil
     end
     unless @access_token
-      unless @pass
+      unless pass
         print "Failed to oAuth. Please add `Pass' into config file or...\n"
         print "Enter the password for #{user} now: "
         revertstty = `stty -g` rescue nil
