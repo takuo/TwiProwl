@@ -8,9 +8,11 @@ Prowl:
 
 Accounts:
  -
-  Application: "Gonbe's Twitter"
-  User: gonbe
-  Pass: himitsu
+  Application: "Twitter"
+  User: example_username
+  Streaming: false
+  Favorite: false
+  FavoritePriority: 0
   MentionsCount: 10
   MentionsInterval: 300
   MentionsPriority: 1
