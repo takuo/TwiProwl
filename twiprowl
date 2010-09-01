@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 0.9
+# Version: 1.0
 #
 # Copyright (c) 2009,2010 Takuo Kitame.
 #
@@ -22,7 +22,7 @@ require 'pstore'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "0.9.0"
+TWIPROWL_VERSION = "1.0.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -37,6 +37,18 @@ unless Process.respond_to?(:daemon)
       STDERR.reopen('/dev/null') unless STDERR.closed?
     end
     0
+  end
+end
+
+module Net
+  class HTTPResponse
+    def each_line( rs = "\n" )
+      stream_check
+      while line = @socket.readuntil( rs )
+        yield line
+      end
+      self
+    end
   end
 end
 
@@ -61,6 +73,18 @@ if RUBY_VERSION >= "1.9.0"
   end
 end
 
+module Net
+  class HTTPResponse
+    def each_line( rs = "\n" )
+      stream_check
+      while line = @socket.readuntil( rs )
+        yield line
+      end
+      self
+    end
+  end
+end
+
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
@@ -72,12 +96,13 @@ class TwiProwl
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
   RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
+  STREAM_URL = "https://betastream.twitter.com/2b/user.json"
 
   CONSUMER_KEY = 'nqjjOwQ207D1r3sPVgRhA'
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :thread, :time)
+  CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :thread, :time, :enable)
 
   attr_accessor :thread
 
@@ -89,6 +114,7 @@ class TwiProwl
     @retweets = CheckInfo.new( "Retweets", -1, "check_retweets" )
     @membership = CheckInfo.new( "Membership", -1, "check_membership" )
     @remotter = CheckInfo.new( "Remotter", -1, "check_followers" )
+    @favorite = CheckInfo.new( "Favorite", -1, nil )
 
     @application = config['Application'] ? config['Application'] : "Twitter"
 
@@ -112,6 +138,9 @@ class TwiProwl
     @remotter.followers = Array.new
     @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
     @remotter.req_auth = false
+    @streaming = config['Streaming'] ? config['Streaming'] : false
+    @favorite.enable   = config['Favorite'] ? config['Favorite'] : false
+    @favorite.priority = config['FavoritePriority'] ? config['FavoritePriority'] : 0
 
     process_xauth( @user, pass )
     rate_limit_status( true )
@@ -143,12 +172,13 @@ class TwiProwl
      :proxy => @use_proxy ? @@prowl_conf["ProxyURI"] : nil
     }
 
-    consumer = OAuth::Consumer.new( CONSUMER_KEY, CONSUMER_SECRET, params )
+    @consumer = OAuth::Consumer.new( CONSUMER_KEY, CONSUMER_SECRET, params )
     begin
       if access_token && access_token_secret
         @access_token = OAuth::AccessToken.new(
-          consumer, access_token, access_token_secret
+          @consumer, access_token, access_token_secret
         )
+        @token = OAuth::Token.new( access_token, access_token_secret )
       end
     rescue
        print "Failed to getting Access Token.\n"
@@ -166,7 +196,7 @@ class TwiProwl
       end
       begin
         print "** Processing xAuth authorization for #{user}..."
-        @access_token = consumer.get_access_token(nil, {}, {
+        @access_token = @consumer.get_access_token(nil, {}, {
           :x_auth_mode => "client_auth",
           :x_auth_username => user,
           :x_auth_password => pass,
@@ -181,6 +211,7 @@ class TwiProwl
           }
           pdb.commit
         end
+        @token = OAuth::Token.new( @access_token.token, @access_token.secret )
         File.chmod( 0600, File.join( pdbfile ) )
       rescue OAuth::Unauthorized
         print "Failed to OAuth due to wrong password or the server error.\n"
@@ -309,7 +340,7 @@ class TwiProwl
       end
 
       if checkinfo.last_id < 0
-        debug "#{checkinfo.name}: last_id = #{obj['id']}"
+        debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
       else
         debug "Prowling: %s %s" % [ event, desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
@@ -322,7 +353,7 @@ class TwiProwl
       end
       checkinfo.last_id = obj['id']
     end
-    debug "#{checkinfo.name}: last_id => #{checkinfo.last_id}"
+    debug "#{checkinfo.name}: last_id = #{checkinfo.last_id}"
     return
   end
 
@@ -519,14 +550,148 @@ class TwiProwl
     @rate > threshold
   end
 
+  def unescape( text )
+    text.gsub( /&(amp|quot|gt|lt);/u ) do
+      match = $1.dup
+      case match
+      when 'amp'  then '&'
+      when 'quot' then '"'
+      when 'gt'   then '>'
+      when 'lt'   then '<'
+      else
+        "&#{match};"
+      end
+    end unless text.nil? || text.empty?
+  end
+
+  def process_stream( json )
+    mentions = json['entities'] ? json['entities']['user_mentions'] : nil
+    retweets = json['retweeted_status']
+    event    = json['event']
+    if json['user']
+      source = json['user']['screen_name']
+    elsif json['source']
+      source = json['source']['screen_name'] 
+    else
+      source = nil
+    end
+         
+    desc = json['text']
+    desc = unescape( desc )
+
+    # RT event
+    if retweets and retweets['user']['screen_name'] == @user
+      event = "#{@retweets.name} by @#{source}" 
+      debug "Prowling: %s %s" % [ event, desc ]
+      prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => event,
+             :description => desc,
+             :priority => @mentions.priority ) if @retweets.interval > 0
+      return
+    end
+
+
+    # mentions event   
+    if mentions and mentions.size > 0 and
+      mentions.find do |m| m['screen_name'] == @user end
+      event = "#{@mentions.name} from @#{source}"
+      debug "Prowling: %s %s" % [ event, desc ]
+      prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => event,
+             :description => desc,
+             :priority => @mentions.priority ) if @mentions.interval > 0
+      return
+    end
+
+    # Membership event
+    case event
+    when "list_member_added"
+      desc = "You have been added into: #{json['target_object']['full_name']}" 
+      prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => "List membership",
+             :description => desc,
+             :priority => @membership.priority ) if @membership.interval > 0
+    when "list_member_removed"
+      desc = "You have been removed from: #{json['target_object']['full_name']}" 
+      prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => "List membership",
+             :description => desc,
+             :priority => @membership.priority ) if @membership.interval > 0
+    when "favorite"
+      target = json['target_object']['user']['screen_name']
+      if target == @user and @favorite.enable
+        text = json['target_object']['text']
+        desc = unescape( text )
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "Favorite by @#{source}",
+               :description => desc,
+               :priority => @favorite.priority )
+      end
+    when "unfavorite"
+      target = json['target_object']['user']['screen_name']
+      if target == @user and @favorite.enable
+        text = json['target_object']['text']
+        desc = unescape( text )
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "Unfavorite by @#{source}",
+               :description => desc,
+               :priority => @favorite.priority )
+      end
+    else
+      debug "Event: #{event}" unless event.nil? || event.empty?
+    end          
+  end
+
+  def stream_check
+    debug "Checking with Streaming API."
+    uri = URI::parse( STREAM_URL )
+    http = http_new( uri, @use_proxy )
+    request = Net::HTTP::Post.new( uri.request_uri )
+    request.set_form_data( { "replies" => "all" } )
+    request.oauth!( http, @consumer, @token )
+    begin
+      http.request( request ) do |res|
+        res.each_line( "\r\n" ) do |line|
+          json = JSON::parse( line ) rescue next
+          begin
+            process_stream( json )
+          rescue
+            error( "BUG: error while process JSON" )
+            error( $!.backtrace.join("\n") )
+            error( $!.to_s )
+          end
+        end
+      end
+    ensure
+      http.finish
+    end
+  end
+
   def run
     info "Starting thread for \"#{@application}\"."
+    if @streaming
+      thread = Thread.new do
+        begin
+          stream_check
+        rescue
+          error "Streaming Error: #{$!}"
+          sleep 5
+          retry
+        end
+      end
+    end
     loop do
-      check( @mentions )
+      check( @mentions ) unless @streaming
       check( @direct )
-      check( @retweets )
+      check( @retweets ) unless @streaming
       check( @remotter )
-      check( @membership )
+      check( @membership ) unless @streaming
       sleep 1
     end # loop
   end
