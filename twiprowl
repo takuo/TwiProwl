@@ -608,19 +608,23 @@ class TwiProwl
     # Membership event
     case event
     when "list_member_added"
-      desc = "You have been added into: #{json['target_object']['full_name']}" 
-      prowl( :apikey => @@prowl_conf['APIKey'],
-             :application=> @application,
-             :event => "List membership",
-             :description => desc,
-             :priority => @membership.priority ) if @membership.interval > 0
+      if json['target']['screen_name'] == @user
+        desc = "You have been added into: #{json['target_object']['full_name']}" 
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => @membership.priority ) if @membership.interval > 0
+      end
     when "list_member_removed"
-      desc = "You have been removed from: #{json['target_object']['full_name']}" 
-      prowl( :apikey => @@prowl_conf['APIKey'],
-             :application=> @application,
-             :event => "List membership",
-             :description => desc,
-             :priority => @membership.priority ) if @membership.interval > 0
+      if json['target']['screen_name'] == @user
+        desc = "You have been removed from: #{json['target_object']['full_name']}" 
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => @membership.priority ) if @membership.interval > 0
+      end
     when "favorite"
       target = json['target_object']['user']['screen_name']
       if target == @user and @favorite.enable
