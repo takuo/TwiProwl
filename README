@@ -39,9 +39,11 @@ Accounts:
   Pass: <Twitter Password>
    # You should remove this after successed xAuth process. 
   Streaming: <true|false>
-   # use streaming API. It can be check Mentions, Retweets, Memberships and Favorites event.
+   # use streaming API. It can be check Mentions, Retweets, Memberships and Favorites event. default false
   Favorite: <true|false>
-   # checking favorite event of your tweets. (only on Streaming)
+   # checking favorite event of your tweets. (only on Streaming), default false
+  FavoritePriority: <-2 to 2>
+   # prowl priority, default 0
   MentionsInterval: <check interval (sec)>
    # checking mentions, 0 for disable it, default: 300
   MentionsCount: <limit to get new mentions (int)>
