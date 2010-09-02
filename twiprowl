@@ -1,4 +1,4 @@
-#!/usr/bin/ruby1.9.1
+#!/usr/bin/env ruby
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
@@ -8,8 +8,7 @@
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
-
-$:.unshift File.dirname(__FILE__)
+STDOUT.sync = STDERR.sync = true
 
 require 'optparse'
 require 'net/https'
@@ -17,10 +16,19 @@ require 'json'
 require 'uri'
 require 'yaml'
 require 'logger'
-require 'oauth'
 require 'pstore'
-
-STDOUT.sync = STDERR.sync = true
+begin
+  require 'oauth'
+rescue LoadError
+  begin
+    require 'rubygems'
+    require 'oauth'
+  rescue LoadError
+    $:.unshift File.dirname(__FILE__)
+    STDERR.print "Warning: Loading local oauth library. Please install oauth rubygems.\n"
+    require 'oauth'
+  end
+end
 
 TWIPROWL_VERSION = "1.0.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
