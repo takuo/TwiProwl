@@ -21,6 +21,16 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
+module Unicode
+  def self.const_missing( codepoint )  
+    if codepoint.to_s =~ /^([0-9a-fA-F]{4,5}|10[0-9a-fA-F]{4})$/
+      const_set(codepoint, [$1.to_i(16)].pack("U").freeze)
+    else
+      raise NameError, "Uninitialized constant: Unicode::#{codepoint}"
+    end
+  end
+end
+
 TWIPROWL_VERSION = "1.1.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
@@ -41,7 +51,7 @@ class TwiProwl
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new( :name, :func, :interval,
+  CheckInfo = Struct.new( :name, :func, :interval, :symbol,
                           :last_id, :enable, :count, :priority,
                           :followers, :thread, :time )
 
@@ -59,6 +69,7 @@ class TwiProwl
       @unfollowed = CheckInfo.new( "Unfollowed", "check_followers", 1800 ),
       @favorite = CheckInfo.new( "Favorite" )
     ] )
+    @direct.symbol = Unicode::E103
     @membership.followers = Array.new
     @unfollowed.followers = Array.new
 
@@ -327,6 +338,8 @@ class TwiProwl
       event = "#{checkinfo.name}: #{screen_name}"
 
       desc = unescape( obj['text'] )
+      desc = checkinfo.symbol + " " + desc if checkinfo.symbol
+
       if checkinfo.last_id < 0
         debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
       else
@@ -351,7 +364,7 @@ class TwiProwl
     return if !checkinfo.time.nil? &&
                Time.now - checkinfo.time < checkinfo.interval
     checkinfo.time = Time.now
-    checkinfo.thread = Thread.new do
+    Thread.new do
       begin
         method( checkinfo.func ).call( checkinfo )
       rescue
@@ -406,8 +419,8 @@ class TwiProwl
 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
-               :event => "You've been unfollowed",
-               :description => desc,
+               :event => "Unfollowed",
+               :description => "#{Unicode::E023} #{desc}",
                :priority => checkinfo.priority
                )
       end
@@ -505,49 +518,50 @@ class TwiProwl
 
     # RT event
     if retweets and retweets['user']['screen_name'] == @user
-      event = "#{@retweets.name} by @#{source}" 
+      desc = unescape( retweets['text'] )
+      event = "Retweeted by @#{source}" 
       debug "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
-             :description => desc,
-             :priority => @mentions.priority ) if @retweets.interval > 0
+             :description => "#{Unicode::E00F} #{desc}",
+             :priority => @mentions.priority ) if @retweets.enable
       return
     end
-
 
     # mentions event   
     if mentions and mentions.size > 0 and
       mentions.find do |m| m['screen_name'] == @user end
-      event = "#{@mentions.name} from @#{source}"
+      desc = unescape( json['text'] )
+      event = "Mentioned by @#{source}"
       debug "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
-             :description => desc,
-             :priority => @mentions.priority ) if @mentions.interval > 0
+             :description => "#{Unicode::E10F} #{desc}",
+             :priority => @mentions.priority ) if @mentions.enable
       return
     end
 
     # Membership event
     case event
     when "list_member_added"
-      if json['target']['screen_name'] == @user
+      if json['target']['screen_name'] == @user and @membership.enable
         desc = "You have been added into: #{json['target_object']['full_name']}" 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "List membership",
-               :description => desc,
-               :priority => @membership.priority ) if @membership.interval > 0
+               :description => "#{Unicode::E337} #{desc}",
+               :priority => @membership.priority )
       end
     when "list_member_removed"
-      if json['target']['screen_name'] == @user
+      if json['target']['screen_name'] == @user and @membership.enable
         desc = "You have been removed from: #{json['target_object']['full_name']}" 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "List membership",
-               :description => desc,
-               :priority => @membership.priority ) if @membership.interval > 0
+               :description => "#{Unicode::E333} #{desc}",
+               :priority => @membership.priority ) 
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
@@ -557,7 +571,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Favorite by @#{source}",
-               :description => desc,
+               :description => "#{Unicode::E32F} #{desc}",
                :priority => @favorite.priority )
       end
     when "unfavorite"
@@ -568,7 +582,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Unfavorite by @#{source}",
-               :description => desc,
+               :description => "#{Unicode::E421} #{desc}",
                :priority => @favorite.priority )
       end
     else
