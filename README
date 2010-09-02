@@ -8,15 +8,18 @@ Version : 1.0.0
   - openssl
   - json
   - hmac-ruby
+  - oauth (from rubygems)
 
    $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8
+   $ sudo gem install --no-rdoc --no-ri oauth
 
  for Ruby 1.9.1
   - openssl
-  - ruby-hmac (from rubygems)
+  - ruby-hmac >= 0.4.0 (from rubygems)
+  - oauth (from rubygems)
 
    $ sudo apt-get install rubygems1.9.1 libopenssl-ruby1.9.1
-   $ sudo gem1.9.1 install ruby-hmac
+   $ sudo gem1.9.1 install --no-rdoc --no-ri ruby-hmac oauth
 
 2. copy config.yml to ~/.twiprowl.conf and edit it.
 

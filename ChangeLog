@@ -1,3 +1,12 @@
+2010-09-02  Takuo Kitame  <kitame@debian.org>
+
+	* 1.0.1
+	* [Streaming] Fix incorrect prowl trigger for ListMembership event.
+	* [Streaming] Increase recconect delay by error count.
+	* Fix kill process issue.
+	* #!/usr/bin/env ruby
+	* use external oauth library if possible.
+
 2010-09-01  Takuo Kitame  <kitame@debian.org>
 
 	* 1.0.0
