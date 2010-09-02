@@ -17,6 +17,7 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
+require 'hmac'
 begin
   require 'oauth'
 rescue LoadError
