@@ -656,7 +656,7 @@ class TwiProwl
     uri = URI::parse( STREAM_URL )
     http = http_new( uri, @use_proxy )
     request = Net::HTTP::Post.new( uri.request_uri )
-    request.set_form_data( { "replies" => "all" } )
+    # request.set_form_data( { "replies" => "all" } )
     request.oauth!( http, @consumer, @token )
     begin
       http.request( request ) do |res|
