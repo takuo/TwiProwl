@@ -22,7 +22,7 @@ require 'pstore'
 
 STDOUT.sync = STDERR.sync = true
 
-TWIPROWL_VERSION = "1.0.0"
+TWIPROWL_VERSION = "1.0.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 # define Process.daemon (ruby 1.9 feature)
@@ -40,6 +40,7 @@ unless Process.respond_to?(:daemon)
   end
 end
 
+# implemented for Streamin API
 module Net
   class HTTPResponse
     def each_line( rs = "\n" )
@@ -53,7 +54,7 @@ module Net
 end
 
 # oAuth fix for >= 1.9.0
-if RUBY_VERSION >= "1.9.0"
+if RUBY_VERSION >= "1.9.0" and HMAC::VERSION < "0.4.0"
   module HMAC
     class Base
       def set_key(key)
@@ -69,18 +70,6 @@ if RUBY_VERSION >= "1.9.0"
         @md = @algorithm.new
         @initialized = true
       end
-    end
-  end
-end
-
-module Net
-  class HTTPResponse
-    def each_line( rs = "\n" )
-      stream_check
-      while line = @socket.readuntil( rs )
-        yield line
-      end
-      self
     end
   end
 end
@@ -104,7 +93,7 @@ class TwiProwl
 
   CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :thread, :time, :enable)
 
-  attr_accessor :thread
+  attr_accessor :thread, :stream_thread
 
   def initialize( global, config )
     @@conf = global
@@ -144,6 +133,7 @@ class TwiProwl
 
     process_xauth( @user, pass )
     rate_limit_status( true )
+    @shutdown = false
   end
 
   @@conf = Hash.new
@@ -652,7 +642,7 @@ class TwiProwl
     end          
   end
 
-  def stream_check
+  def stream_monitor
     debug "Checking with Streaming API."
     uri = URI::parse( STREAM_URL )
     http = http_new( uri, @use_proxy )
@@ -662,6 +652,7 @@ class TwiProwl
     begin
       http.request( request ) do |res|
         res.each_line( "\r\n" ) do |line|
+          @stream_error_count = 0
           json = JSON::parse( line ) rescue next
           begin
             process_stream( json )
@@ -678,26 +669,42 @@ class TwiProwl
   end
 
   def run
-    info "Starting thread for \"#{@application}\"."
-    if @streaming
-      thread = Thread.new do
-        begin
-          stream_check
-        rescue
-          error "Streaming Error: #{$!}"
-          sleep 5
-          retry
-        end
+    return if ( @thread and @thread.alive? ) or @shutdown
+    info "Starting basic thread for \"#{@application}\"."
+    @thread = Thread.new do 
+      loop do
+        check( @mentions ) unless @streaming
+        check( @direct )
+        check( @retweets ) unless @streaming
+        check( @remotter )
+        check( @membership ) unless @streaming
+        sleep 1
+      end # loop
+    end
+  end
+
+  def stream_run
+    return if ! @streaming
+    return if ( @stream_thread and @stream_thread.alive? ) or @shutdown
+    info "Starting streaming thread for \"#{@application}\"."
+    @stream_thread = Thread.new do
+      begin
+        stream_monitor
+      rescue
+        Thread.self.kill if @shutdown
+        error "Streaming Error: #{$!}"
+        debug "Stream error count=#{@stream_error_count}"
+        sleep 10 * (@stream_error_count += 1)
+        retry
       end
     end
-    loop do
-      check( @mentions ) unless @streaming
-      check( @direct )
-      check( @retweets ) unless @streaming
-      check( @remotter )
-      check( @membership ) unless @streaming
-      sleep 1
-    end # loop
+  end
+
+  def shutdown
+    @shutdown = true
+    info "Killing all threads by shutdown request."
+    (@stream_thread.kill; debug( "Streaming thread has been killed" )) if @stream_thread and @stream_thread.alive?
+    (@thread.kill; debug( "Check thread has been killed" )) if @thread and @thread.alive?
   end
 end
 
@@ -751,8 +758,7 @@ config["Debug"] = true if ProgramConfig[:debug]
 
 accounts = Array.new
 config['Accounts'].each do |account|
-  ac = TwiProwl.new( config, account )
-  accounts.push ac
+  accounts.push( TwiProwl.new( config, account ) )
 end
 
 ## Daemon mode
@@ -767,30 +773,23 @@ if ProgramConfig[:daemon] || config['Daemon']
 end
 
 Signal.trap(:INT) {
+  accounts.each do |ac| ac.shutdown end
   exit
 }
 Signal.trap(:TERM) {
+  accounts.each do |ac| ac.shutdown end
   exit
 }
 
 print "TwiProwl is running.\n"
 
-accounts.each do |ac|
-  ac.thread = Thread.new do
-    ac.run
-  end
-end
-
 # main loop thread
 loop do
-  sleep 60
   accounts.each do |ac|
-    if ac.thread.nil? or !ac.thread.alive?
-      ac.thread = Thread.new do
-        ac.run
-      end
-    end
+    ac.run
+    ac.stream_run 
   end
+  sleep 60
 end
 
 # __END__
