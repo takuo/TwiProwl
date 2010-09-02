@@ -31,6 +31,16 @@ rescue LoadError
   end
 end
 
+module Unicode
+  def self.const_missing( codepoint )  
+    if codepoint.to_s =~ /^([0-9a-fA-F]{4,5}|10[0-9a-fA-F]{4})$/
+      const_set(codepoint, [$1.to_i(16)].pack("U").freeze)
+    else
+      raise NameError, "Uninitialized constant: Unicode::#{codepoint}"
+    end
+  end
+end
+
 TWIPROWL_VERSION = "1.0.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
@@ -100,7 +110,7 @@ class TwiProwl
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :thread, :time, :enable)
+  CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :time, :enable, :symbol)
 
   attr_accessor :thread, :stream_thread
 
@@ -122,6 +132,7 @@ class TwiProwl
     @direct.count = config['DirectCount'] ? config['DirectCount'] : 10
     @direct.interval = config['DirectInterval'] ? config['DirectInterval'] : 600
     @direct.priority = config['DirectPriority'] ? config['DirectPriority'] : 0
+    @direct.symbol = Unicode::E103
     @retweets.count = config['RetweetsCount'] ? config['RetweetsCount'] : 10
     @retweets.interval = config['RetweetsInterval'] ? config['RetweetsInterval'] : 300
     @retweets.priority = config['RetweetsPriority'] ? config['RetweetsPriority'] : 0
@@ -136,6 +147,7 @@ class TwiProwl
     @remotter.followers = Array.new
     @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
     @remotter.req_auth = false
+    @remotter.symbol = Unicode::E023
     @streaming = config['Streaming'] ? config['Streaming'] : false
     @favorite.enable   = config['Favorite'] ? config['Favorite'] : false
     @favorite.priority = config['FavoritePriority'] ? config['FavoritePriority'] : 0
@@ -325,18 +337,8 @@ class TwiProwl
       screen_name = obj.has_key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
       event = "#{checkinfo.name}: #{screen_name}"
 
-      desc = obj['text']
-      desc.gsub!(/&(amp|quot|gt|lt);/u) do
-        match = $1.dup
-        case match
-        when 'amp'  then '&'
-        when 'quot' then '"'
-        when 'gt'   then '>'
-        when 'lt'   then '<'
-        else
-          "&#{match};"
-        end
-      end
+      desc = unescape( obj['text'] )
+      desc = checkinfo.symbol + " " + desc if checkinfo.symbol
 
       if checkinfo.last_id < 0
         debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
@@ -362,7 +364,7 @@ class TwiProwl
     return if !checkinfo.time.nil? &&
                Time.now - checkinfo.time < checkinfo.interval
     checkinfo.time = Time.now
-    checkinfo.thread = Thread.new do
+    Thread.new do
       begin
         method( checkinfo.func ).call( checkinfo )
       rescue
@@ -418,8 +420,8 @@ class TwiProwl
         desc += (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
-               :event => "You've been unfollowed",
-               :description => desc,
+               :event => "Unfollowed",
+               :description => "#{Unicode::E023} #{desc}",
                :priority => checkinfo.priority
                )
       end
@@ -575,31 +577,29 @@ class TwiProwl
       source = nil
     end
          
-    desc = json['text']
-    desc = unescape( desc )
-
     # RT event
     if retweets and retweets['user']['screen_name'] == @user
-      event = "#{@retweets.name} by @#{source}" 
+      desc = unescape( retweets['text'] )
+      event = "Retweeted by @#{source}" 
       debug "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
-             :description => desc,
+             :description => "#{Unicode::E00F} #{desc}",
              :priority => @mentions.priority ) if @retweets.interval > 0
       return
     end
 
-
     # mentions event   
     if mentions and mentions.size > 0 and
       mentions.find do |m| m['screen_name'] == @user end
-      event = "#{@mentions.name} from @#{source}"
+      desc = unescape( json['text'] )
+      event = "Mentioned by @#{source}"
       debug "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
-             :description => desc,
+             :description => "#{Unicode::E10F} #{desc}",
              :priority => @mentions.priority ) if @mentions.interval > 0
       return
     end
@@ -612,7 +612,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "List membership",
-               :description => desc,
+               :description => "#{Unicode::E337} #{desc}",
                :priority => @membership.priority ) if @membership.interval > 0
       end
     when "list_member_removed"
@@ -621,7 +621,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "List membership",
-               :description => desc,
+               :description => "#{Unicode::E333} #{desc}",
                :priority => @membership.priority ) if @membership.interval > 0
       end
     when "favorite"
@@ -632,7 +632,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Favorite by @#{source}",
-               :description => desc,
+               :description => "#{Unicode::E32F} #{desc}",
                :priority => @favorite.priority )
       end
     when "unfavorite"
@@ -643,7 +643,7 @@ class TwiProwl
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Unfavorite by @#{source}",
-               :description => desc,
+               :description => "#{Unicode::E421} #{desc}",
                :priority => @favorite.priority )
       end
     else
