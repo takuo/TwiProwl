@@ -21,16 +21,6 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-module Unicode
-  def self.const_missing( codepoint )  
-    if codepoint.to_s =~ /^([0-9a-fA-F]{4,5}|10[0-9a-fA-F]{4})$/
-      const_set(codepoint, [$1.to_i(16)].pack("U").freeze)
-    else
-      raise NameError, "Uninitialized constant: Unicode::#{codepoint}"
-    end
-  end
-end
-
 TWIPROWL_VERSION = "1.1.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
