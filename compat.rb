@@ -63,3 +63,13 @@ if RUBY_VERSION >= "1.9.0" and HMAC::VERSION < "0.4.0"
     end
   end
 end
+
+module Unicode
+  def self.const_missing( codepoint )  
+    if codepoint.to_s =~ /^([0-9a-fA-F]{4,5}|10[0-9a-fA-F]{4})$/
+      const_set(codepoint, [$1.to_i(16)].pack("U").freeze)
+    else
+      raise NameError, "Uninitialized constant: Unicode::#{codepoint}"
+    end
+  end
+end
