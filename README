@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 1.0.0
+Version : 1.1.0
 
 1. install some ruby libraries
 
@@ -13,7 +13,7 @@ Version : 1.0.0
    $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8
    $ sudo gem install --no-rdoc --no-ri oauth
 
- for Ruby 1.9.1
+ for Ruby >= 1.9.1
   - openssl
   - ruby-hmac >= 0.4.0 (from rubygems)
   - oauth (from rubygems)
@@ -39,40 +39,34 @@ Accounts:
  -
   Application: <application name (optional)> 
   User: <Twitter username>
-  Pass: <Twitter Password>
-   # You should remove this after successed xAuth process. 
-  Streaming: <true|false>
-   # use streaming API. It can be check Mentions, Retweets, Memberships and Favorites event. default false
-  Favorite: <true|false>
-   # checking favorite event of your tweets. (only on Streaming), default false
-  FavoritePriority: <-2 to 2>
-   # prowl priority, default 0
-  MentionsInterval: <check interval (sec)>
-   # checking mentions, 0 for disable it, default: 300
-  MentionsCount: <limit to get new mentions (int)>
-  MentionsPriority: <-2 to 2>
-   # prowl priority, default 0
-  DirectInterval: <check interval (sec)>
-   # checking direct messages, 0 for disable it, default: 600
-  DirectCount: <limit to get new DirectMessage (int)>
-  DirectPriority: <-2 to 2>
-   # prowl priority, default 0
-  RetweetsInterval: <check interval (sec)>
-   # checking ReTweet (only 1st time), 0 for disable it, default: 300
-  RetweetsCount: <limit to get new retweets (int)>
-  RetweetsPriority: <-2 to 2>
-   # prowl priority, default 0
-  UseProxy: <true|false>
-   # use HTTP Proxy to access Twitter API
-  RateLimitThreshold: <0 to 150>
-   # stop to access TwitterAPI when RateLimitStatus is under the value, default: 20
-  RemotterInterval: <check interval (sec) for unfollow>
-   # checking unfollow actions, 0 for disable it. default: 0
-  RemotterPriority: <-2 to 2>
-   # prowl priority, default 0
-  MembershipInterval: <check interval (sec) for list membership>
-   # checking list membership changes, 0 for disable it. default: 0
-  MembershipPriority: <-2 to 2>
-   # prowl priority, default 0
+  Streaming: false         # use User streams API for Mentions,RTs,Members,Favs
+  RateLimitThreshold: 20   # polling limitter for basic API
+  UseProxy: false          # <= use Prowl::ProxyURL
+  Mentions:                # Event on Mentions
+    Enable: false          # Enable, true or false
+    Priority: 0            # Prowl priority, -2 to 2
+    Count: 10              # Max number of tweet to fetch (ignored when Streaming)
+    Interval: 300          # polling interval (ignored when Streaming)
+  Direct:                  # Event on Direct Messages
+    Enable: false
+    Priority: 0
+    Count: 10
+    Interval: 600
+  Retweets:                # Event on Retweets
+    Enbale: false
+    Priority: 0
+    Count: 10              # <= ignored when Streaming
+    Interval: 300          # <= ignored when Streaming
+  Membership:              # Event on List Membership
+    Enable: false
+    Priority: 0
+    Interval: 3600         # <= ignored when Streaming
+  Unfollowed:              # Event on Unfollowed, requires many API rate
+    Enable: false
+    Priority: 0
+    Interval: 1800
+  Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
+    Enable: false
+    Priority: 0
  - 
   <Other account config here>
