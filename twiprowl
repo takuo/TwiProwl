@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 1.0
+# Version: 1.1
 #
 # Copyright (c) 2009,2010 Takuo Kitame.
 #
@@ -17,79 +17,20 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
-require 'hmac'
-begin
-  require 'oauth'
-rescue LoadError
-  begin
-    require 'rubygems'
-    require 'oauth'
-  rescue LoadError
-    $:.unshift File.dirname(__FILE__)
-    STDERR.print "Warning: Loading local oauth library. Please install oauth rubygems.\n"
-    require 'oauth'
-  end
-end
 
-TWIPROWL_VERSION = "1.0.1"
+$:.unshift( File::dirname( __FILE__ ) )
+require 'compat'
+
+TWIPROWL_VERSION = "1.1.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
-
-# define Process.daemon (ruby 1.9 feature)
-unless Process.respond_to?(:daemon)
-  def Process.daemon(nochdir = nil, noclose = nil)
-    exit!(0) if fork
-    Process.setsid
-    Dir.chdir('/') unless nochdir
-    unless noclose
-      STDIN.reopen('/dev/null')  unless STDIN.closed?
-      STDOUT.reopen('/dev/null') unless STDOUT.closed?
-      STDERR.reopen('/dev/null') unless STDERR.closed?
-    end
-    0
-  end
-end
-
-# implemented for Streamin API
-module Net
-  class HTTPResponse
-    def each_line( rs = "\n" )
-      stream_check
-      while line = @socket.readuntil( rs )
-        yield line
-      end
-      self
-    end
-  end
-end
-
-# oAuth fix for >= 1.9.0
-if RUBY_VERSION >= "1.9.0" and HMAC::VERSION < "0.4.0"
-  module HMAC
-    class Base
-      def set_key(key)
-        key = @algorithm.digest(key) if key.size > @block_size
-        key_xor_ipad = Array.new(@block_size, 0x36)
-        key_xor_opad = Array.new(@block_size, 0x5c)
-        key.bytes.each_with_index do |value, index|
-          key_xor_ipad[index] ^= value
-          key_xor_opad[index] ^= value
-        end
-        @key_xor_ipad = key_xor_ipad.pack('c*')
-        @key_xor_opad = key_xor_opad.pack('c*')
-        @md = @algorithm.new
-        @initialized = true
-      end
-    end
-  end
-end
 
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
-  MENTIONS = "#{API_BASE}statuses/mentions.json?"
-  DIRECT_MESSAGES = "#{API_BASE}direct_messages.json?"
-  RETWEETS = "#{API_BASE}statuses/retweets_of_me.json?"
+  MENTIONS = "#{API_BASE}statuses/mentions.json"
+  DIRECT_MESSAGES = "#{API_BASE}direct_messages.json"
+  RETWEETS = "#{API_BASE}statuses/retweets_of_me.json"
   MEMBERSHIP = "#{API_BASE}lists/memberships.json?screen_name=%s&cursor=%d"
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
@@ -100,47 +41,33 @@ class TwiProwl
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new(:name, :last_id, :func, :count, :interval, :priority, :followers, :req_auth, :thread, :time, :enable)
+  CheckInfo = Struct.new( :name, :func, :interval,
+                          :last_id, :enable, :count, :priority,
+                          :followers, :thread, :time )
 
   attr_accessor :thread, :stream_thread
 
   def initialize( global, config )
     @@conf = global
     _prowl_conf_validate( @@conf['Prowl'] )
-    @mentions = CheckInfo.new( "Mentions", -1, "check_mentions" )
-    @direct   = CheckInfo.new( "Direct", -1, "check_direct" )
-    @retweets = CheckInfo.new( "Retweets", -1, "check_retweets" )
-    @membership = CheckInfo.new( "Membership", -1, "check_membership" )
-    @remotter = CheckInfo.new( "Remotter", -1, "check_followers" )
-    @favorite = CheckInfo.new( "Favorite", -1, nil )
-
-    @application = config['Application'] ? config['Application'] : "Twitter"
-
-    @mentions.count = config['MentionsCount'] ? config['MentionsCount'] : 10
-    @mentions.interval = config['MentionsInterval'] ? config['MentionsInterval'] : 300
-    @mentions.priority = config['MentionsPriority'] ? config['MentionsPriority'] : 0
-    @direct.count = config['DirectCount'] ? config['DirectCount'] : 10
-    @direct.interval = config['DirectInterval'] ? config['DirectInterval'] : 600
-    @direct.priority = config['DirectPriority'] ? config['DirectPriority'] : 0
-    @retweets.count = config['RetweetsCount'] ? config['RetweetsCount'] : 10
-    @retweets.interval = config['RetweetsInterval'] ? config['RetweetsInterval'] : 300
-    @retweets.priority = config['RetweetsPriority'] ? config['RetweetsPriority'] : 0
-    @membership.interval = config['MembershipInterval'] ? config['MembershipInterval'] : 300
-    @membership.priority = config['MembershipPriority'] ? config['MembershipPriority'] : 0
+    @application = config.key?( 'Application' ) ? config['Application'] : "Twitter"
+    load_config( config, [ # name, func, interval( sec )
+      @mentions = CheckInfo.new( "Mentions", "check_mentions", 300 ),
+      @direct   = CheckInfo.new( "Direct", "check_direct", 600 ),
+      @retweets = CheckInfo.new( "Retweets", "check_retweets", 600 ),
+      @membership = CheckInfo.new( "Membership", "check_membership", 1200 ),
+      @unfollowed = CheckInfo.new( "Unfollowed", "check_followers", 1800 ),
+      @favorite = CheckInfo.new( "Favorite" )
+    ] )
     @membership.followers = Array.new
-    @user = config['User']
-    pass = config['Pass']
-    @use_proxy = config['UseProxy']
-    @threshold = config['RateLimitThreshold'] ? config['RateLimitThreshold'] : 20
-    @remotter.interval = config['RemotterInterval'] ? config['RemotterInterval'] : 0
-    @remotter.followers = Array.new
-    @remotter.priority = config['RemotterPriority'] ? config['RemotterPriority'] : 0
-    @remotter.req_auth = false
-    @streaming = config['Streaming'] ? config['Streaming'] : false
-    @favorite.enable   = config['Favorite'] ? config['Favorite'] : false
-    @favorite.priority = config['FavoritePriority'] ? config['FavoritePriority'] : 0
+    @unfollowed.followers = Array.new
 
-    process_xauth( @user, pass )
+    @user = config['User']
+    @use_proxy = config['UseProxy']
+    @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
+    @streaming = config.key?( 'Streaming' ) ? config['Streaming'] : false
+
+    process_xauth( @user )
     rate_limit_status( true )
     @shutdown = false
   end
@@ -150,7 +77,22 @@ class TwiProwl
   @@prowl_conf = nil
 
   private
-  def process_xauth( user, pass )
+  def load_config( config, items )
+    items.each do |checkinfo|
+      # set default
+      checkinfo.enable   = false
+      checkinfo.last_id  = -1
+      checkinfo.priority = 0
+      checkinfo.count    = 10
+      next unless conf = config[checkinfo.name]
+      checkinfo.enable   = conf['Enable']   if conf.key?( 'Enable' )
+      checkinfo.priority = conf['Priority'] if conf.key?( 'Priority' )
+      checkinfo.count    = conf['Count']    if conf.key?( 'Count' )
+      checkinfo.interval = conf['Interval'] if conf.key?( 'Interval' )
+    end
+  end
+
+  def process_xauth( user )
 
     pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
     access_token = nil
@@ -177,22 +119,18 @@ class TwiProwl
         @access_token = OAuth::AccessToken.new(
           @consumer, access_token, access_token_secret
         )
-        @token = OAuth::Token.new( access_token, access_token_secret )
       end
     rescue
        print "Failed to getting Access Token.\n"
        @access_token = nil
     end
     unless @access_token
-      unless pass
-        print "Failed to oAuth. Please add `Pass' into config file or...\n"
-        print "Enter the password for #{user} now: "
-        revertstty = `stty -g` rescue nil
-        `stty -echo` rescue nil
-        pass = gets.chomp.strip
-        print "\n"
-        `stty #{revertstty}` rescue nil
-      end
+      print "Enter the password for #{user}: "
+      revertstty = `stty -g` rescue nil
+      `stty -echo` rescue nil
+      pass = gets.chomp.strip
+      print "\n"
+      `stty #{revertstty}` rescue nil
       begin
         print "** Processing xAuth authorization for #{user}..."
         @access_token = @consumer.get_access_token(nil, {}, {
@@ -210,14 +148,14 @@ class TwiProwl
           }
           pdb.commit
         end
-        @token = OAuth::Token.new( @access_token.token, @access_token.secret )
         File.chmod( 0600, File.join( pdbfile ) )
       rescue OAuth::Unauthorized
         print "Failed to OAuth due to wrong password or the server error.\n"
         exit 1
       end
     end
-    print "You can/should remove `Pass' for #{user} from config file.\n" if pass
+    @token = OAuth::Token.new( @access_token.token,
+                               @access_token.secret ) if @streaming
   end
 
   def rate_limit_status( auth = false )
@@ -234,19 +172,33 @@ class TwiProwl
     end.tr(' ', '+')
   end
 
+  def unescape( text )
+    text.gsub( /&(amp|quot|gt|lt);/u ) do
+      match = $1.dup
+      case match
+      when 'amp'  then '&'
+      when 'quot' then '"'
+      when 'gt'   then '>'
+      when 'lt'   then '<'
+      else
+        "&#{match};"
+      end
+    end unless text.nil? || text.empty?
+  end
+
   def _prowl_conf_validate(val)
     return if @@prowl_conf
     @@prowl_conf = val
-    unless @@prowl_conf.kind_of?(Hash)
+    unless @@prowl_conf.kind_of?( Hash )
       STDERR.printf "Configuration Error: Prowl section must be Hash.\n"
       exit 1
     end
-    unless @@prowl_conf.has_key?('APIKey')
+    unless @@prowl_conf.has_key?( 'APIKey' )
       STDERR.printf "Configuration Error: APIKey must be given.\n"
       exit 1
     end
-    if @@prowl_conf.has_key?('ProxyURL')
-       @@prowl_conf['ProxyURI'] = URI::parse(@@prowl_conf['ProxyURL'])
+    if @@prowl_conf.has_key?( 'ProxyURL' )
+       @@prowl_conf['ProxyURI'] = URI::parse( @@prowl_conf['ProxyURL'] )
     end
     _init_logger()
   end
@@ -254,10 +206,10 @@ class TwiProwl
   def _init_logger
     if @@conf['LogDir']
       logdir = @@conf['LogDir']
-      Dir.mkdir(logdir) unless File.exist?(logdir)
-      file = File.join(logdir, LOGFILE)
+      Dir.mkdir( logdir ) unless File.exist?( logdir )
+      file = File.join( logdir, LOGFILE )
       STDOUT.print "All logs will be written into #{file}.\n"
-      @@logger = Logger.new(file, 'daily')
+      @@logger = Logger.new( file, 'daily' )
       @@logger.level = @@conf['Debug'] ? Logger::DEBUG : Logger::INFO
       @@logger.datetime_format = "%Y-%m-%d %H:%M:%S"
     else
@@ -265,6 +217,7 @@ class TwiProwl
     end
   end
 
+  # logging
   def _log( severity, str )
     if @@logger
       @@logger.add( severity, str, "#{@application}@#{@user}" )
@@ -274,232 +227,11 @@ class TwiProwl
         STDERR.print Time.now.strftime( format ) + " #{@application}@#{@user} - #{str}\n"
 
       else
-        print Time.now.strftime( format ) + " #{@application}:#{@user} - #{str}\n"
+        print Time.now.strftime( format ) + " #{@application}@#{@user} - #{str}\n"
       end
     end
   end
 
-  def get_json( url, auth = false )
-    uri = URI::parse( url )
-    debug "Check #{uri.request_uri}"
-    begin
-      if auth
-        res = @access_token.get( url )
-      else
-        http = http_new( uri, @use_proxy )
-        req = Net::HTTP::Get.new( uri.request_uri )
-        res = http.request( req )
-      end
-      if res['X-RateLimit-Remaining']
-        debug "RateLimit: %d/%d Reset at %s" % [
-                                                 res['X-RateLimit-Remaining'],
-                                                 res['X-RateLimit-Limit'],
-                                                 Time.at(res['X-RateLimit-Reset'].to_i).strftime( "%Y-%m-%d %H:%M:%S" )
-                                                ]
-      end
-    rescue
-      error "HTTP Get Error: #{$!}"
-      return [ nil, res ]
-    end
-    return res.code == "200" ? [ JSON::parse( res.body ), res ] : [ nil, res ]
-  end
-
-  def check_generic( reqstr, checkinfo )
-    return unless rate_limit_check( @threshold )
-    info "Checking: #{checkinfo.name}"
-
-    if checkinfo.last_id > 0
-      reqstr += "since_id=#{checkinfo.last_id}"
-      reqstr += "&count=#{checkinfo.count}"
-    else
-      reqstr += "count=1"
-    end
-
-    json, res = get_json( reqstr, true )
-    @rate = res['X-RateLimit-Remaining'].to_i
-    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i)
-    return if json.nil?
-
-    json.reverse.each do |obj|
-
-      screen_name = obj.has_key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
-      event = "#{checkinfo.name}: #{screen_name}"
-
-      desc = obj['text']
-      desc.gsub!(/&(amp|quot|gt|lt);/u) do
-        match = $1.dup
-        case match
-        when 'amp'  then '&'
-        when 'quot' then '"'
-        when 'gt'   then '>'
-        when 'lt'   then '<'
-        else
-          "&#{match};"
-        end
-      end
-
-      if checkinfo.last_id < 0
-        debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
-      else
-        debug "Prowling: %s %s" % [ event, desc ]
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => event,
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-        sleep 2
-      end
-      checkinfo.last_id = obj['id']
-    end
-    debug "#{checkinfo.name}: last_id = #{checkinfo.last_id}"
-    return
-  end
-
-  # common 
-  def check( checkinfo )
-    return if checkinfo.interval == 0
-    return if !checkinfo.time.nil? &&
-               Time.now - checkinfo.time < checkinfo.interval
-    checkinfo.time = Time.now
-    checkinfo.thread = Thread.new do
-      begin
-        method( checkinfo.func ).call( checkinfo )
-      rescue
-        error "Error in #{checkinfo.name}: #{$!.to_s}"
-        debug $!.backtrace.join("\n")
-      end
-
-      checkinfo.time = Time.now
-      info "Done: #{checkinfo.name}"
-      debug "#{checkinfo.name} sleep: #{checkinfo.interval} secs"
-    end
-  end
-
-  # checking followers
-  def check_followers( checkinfo )
-    return unless rate_limit_check( @threshold )
-    cursor = -1
-    users = Array.new
-    while cursor != 0
-      info "Checking: Followers: cursor=#{cursor}"
-      url = FOLLOWERS % [ @user, cursor ]
-      json, res = get_json( url, checkinfo.req_auth )
-      if res.code == "401"
-        checkinfo.req_auth = true
-        json, res = get_json( url, checkinfo.req_auth )
-      end
-      return if json.nil?
-      cursor = json['next_cursor']
-      users.concat( json['ids'].map{ |id| "#{id}" } ) # .map { |u| "@#{u['screen_name']}" } )
-    end
-    debug "Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
-    if checkinfo.followers.size > 0
-      diff = checkinfo.followers - users
-      if diff.size > 0
-        screen_names = Array.new
-        diff.each do |id|
-          url = USER_SHOW % [ id.to_s ]
-          json, res = get_json( url )
-          if json
-            screen_names << "@#{json['screen_name']}"
-          else
-            screen_names << "ID:#{id}"
-          end
-        end
-        if screen_names.size > 1
-          b = screen_names.pop
-          string = screen_names.join(", ")
-          string += " and #{b}"
-        else
-          string = screen_names[0]
-        end
-        desc = string
-        desc += (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => "You've been unfollowed",
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-      end
-    end
-    checkinfo.followers = users
-  end
-
-  # checking list membership
-  def check_membership( checkinfo )
-    return unless rate_limit_check( @threshold )
-    cursor = -1
-    lists = Array.new
-    while cursor != 0
-      info "Checking: Membership: cursor=#{cursor}"
-      url = MEMBERSHIP % [ @user, cursor ]
-      json, res = get_json( url, checkinfo.req_auth )
-      if res.code == "401"
-        checkinfo.req_auth = true
-        json, res = get_json( url, checkinfo.req_auth )
-      end
-      return if json.nil?
-      lists.concat( json['lists'].map{ |list| "#{list['full_name']}" } )
-      cursor = json['next_cursor']
-    end
-    debug "Current memberships: #{lists.size}, Previous: #{checkinfo.followers.size}"
-    if checkinfo.followers.size > 0
-      diff = checkinfo.followers - lists
-      if diff.size > 0
-        if diff.size > 1
-          b = diff.pop
-          string = diff.join(", ")
-          string += " and #{b}"
-        else
-          string = diff[0]
-        end
-        desc = "You have been removed from: " +  string
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => "List membership",
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-      end
-      diff = lists - checkinfo.followers
-      if diff.size > 0
-        if diff.size > 1
-          b = diff.pop
-          string = diff.join(", ")
-          string += " and #{b}"
-        else
-          string = diff[0]
-        end
-        desc = "You have been added to: " +  string
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => "List membership",
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-      end
-    end
-    checkinfo.followers = lists
-  end
-
-  # check Mentions
-  def check_mentions( checkinfo )
-    check_generic( MENTIONS, checkinfo )
-  end
-
-  # check Retweets
-  def check_retweets( checkinfo )
-    check_generic( RETWEETS, checkinfo )
-  end
-
-  # check DirectMessage
-  def check_direct( checkinfo )
-    check_generic( DIRECT_MESSAGES, checkinfo )
-  end
-
-  public
   def debug(str)
     _log(Logger::DEBUG, str)
   end
@@ -549,18 +281,211 @@ class TwiProwl
     @rate > threshold
   end
 
-  def unescape( text )
-    text.gsub( /&(amp|quot|gt|lt);/u ) do
-      match = $1.dup
-      case match
-      when 'amp'  then '&'
-      when 'quot' then '"'
-      when 'gt'   then '>'
-      when 'lt'   then '<'
+  def get_json( url, auth = false )
+    uri = URI::parse( url )
+    debug "Check #{uri.request_uri}"
+    begin
+      if auth
+        res = @access_token.get( url )
       else
-        "&#{match};"
+        http = http_new( uri, @use_proxy )
+        req = Net::HTTP::Get.new( uri.request_uri )
+        res = http.request( req )
       end
-    end unless text.nil? || text.empty?
+      if res['X-RateLimit-Remaining']
+        debug (auth ? "Auth" : "IP" ) + " RateLimit: %d/%d Reset at %s" % [
+                                                 res['X-RateLimit-Remaining'],
+                                                 res['X-RateLimit-Limit'],
+                                                 Time.at(res['X-RateLimit-Reset'].to_i).strftime( "%Y-%m-%d %H:%M:%S" )
+                                                ]
+      end
+    rescue
+      error "HTTP Get Error: #{$!}"
+      return [ nil, res ]
+    end
+    return res.code == "200" ? [ JSON::parse( res.body ), res ] : [ nil, res ]
+  end
+
+  def check_generic( api, checkinfo )
+    return unless rate_limit_check( @threshold )
+    info "Checking: #{checkinfo.name}"
+    params = Hash.new
+    if checkinfo.last_id > 0
+      params['since_id'] = checkinfo.last_id
+      params['count']    = checkinfo.count
+    else
+      params['count']    = 1
+    end
+    request = api + "?" + params.map do |k,v| "#{k}=#{v}" end.join( '&' )
+    json, res = get_json( request, true )
+    @rate = res['X-RateLimit-Remaining'].to_i
+    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i)
+    return if json.nil?
+
+    json.reverse.each do |obj|
+      screen_name = obj.key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
+      event = "#{checkinfo.name}: #{screen_name}"
+
+      desc = unescape( obj['text'] )
+      if checkinfo.last_id < 0
+        debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
+      else
+        debug "Prowling: %s %s" % [ event, desc ]
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => event,
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+        sleep 2
+      end
+      checkinfo.last_id = obj['id']
+    end
+    debug "#{checkinfo.name}: last_id = #{checkinfo.last_id}"
+    return
+  end
+
+  # common check
+  def check( checkinfo )
+    return unless checkinfo.enable
+    return if !checkinfo.time.nil? &&
+               Time.now - checkinfo.time < checkinfo.interval
+    checkinfo.time = Time.now
+    checkinfo.thread = Thread.new do
+      begin
+        method( checkinfo.func ).call( checkinfo )
+      rescue
+        error "Error in #{checkinfo.name}: #{$!.to_s}"
+        debug $!.backtrace.join("\n")
+      end
+
+      checkinfo.time = Time.now
+      info "Done: #{checkinfo.name}"
+      debug "#{checkinfo.name} sleep: #{checkinfo.interval} secs"
+    end
+  end
+
+  # checking followers
+  def check_followers( checkinfo )
+    return unless rate_limit_check( @threshold )
+    cursor = -1
+    users = Array.new
+    while cursor != 0
+      info "Checking: Followers: cursor=#{cursor}"
+      url = FOLLOWERS % [ @user, cursor ]
+      json, res = get_json( url, true )
+      return if json.nil?
+      cursor = json['next_cursor']
+      users.concat( json['ids'].map{ |id| "#{id}" } ) # .map { |u| "@#{u['screen_name']}" } )
+    end
+    debug "Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
+    if checkinfo.followers.size > 0
+      diff = checkinfo.followers - users
+      if diff.size > 0
+        screen_names = Array.new
+        rate = 150
+        diff.each do |id|
+          url = USER_SHOW % [ id.to_s ]
+          json = nil
+          if rate > @threshold
+            json, res = get_json( url, false ) # don't use auth API rate
+            rate = res['X-RateLimit-Remaining'] ? res['X-RateLimit-Remaining'].to_i : 0
+          end 
+          screen_names << json ? "@#{json['screen_name']}" : "ID:#{id}"
+        end
+      
+        if screen_names.size > 1
+          b = screen_names.pop
+          string = screen_names.join(", ")
+          string += " and #{b}"
+        else
+          string = screen_names[0]
+        end
+        desc = string
+        desc += (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
+
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "You've been unfollowed",
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+      end
+    end
+    checkinfo.followers = users
+  end
+
+  # checking list membership
+  def check_membership( checkinfo )
+    return unless rate_limit_check( @threshold )
+    cursor = -1
+    lists = Array.new
+    while cursor != 0
+      info "Checking: Membership: cursor=#{cursor}"
+      url = MEMBERSHIP % [ @user, cursor ]
+      json, res = get_json( url, true )
+      return if json.nil?
+      lists.concat( json['lists'].map{ |list| "#{list['full_name']}" } )
+      cursor = json['next_cursor']
+    end
+    debug "Current memberships: #{lists.size}, Previous: #{checkinfo.followers.size}"
+    if checkinfo.followers.size > 0
+      diff = checkinfo.followers - lists
+      if diff.size > 0
+
+        if diff.size > 1
+          b = diff.pop
+          string = diff.join(", ")
+          string += " and #{b}"
+        else
+          string = diff[0]
+        end
+        desc = "You have been removed from: " +  string
+
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+      end
+
+      diff = lists - checkinfo.followers
+      if diff.size > 0
+
+        if diff.size > 1
+          b = diff.pop
+          string = diff.join(", ")
+          string += " and #{b}"
+        else
+          string = diff[0]
+        end
+        desc = "You have been added to: " +  string
+
+        prowl( :apikey => @@prowl_conf['APIKey'],
+               :application=> @application,
+               :event => "List membership",
+               :description => desc,
+               :priority => checkinfo.priority
+               )
+      end
+    end
+    checkinfo.followers = lists
+  end
+
+  # check Mentions
+  def check_mentions( checkinfo )
+    check_generic( MENTIONS, checkinfo )
+  end
+
+  # check Retweets
+  def check_retweets( checkinfo )
+    check_generic( RETWEETS, checkinfo )
+  end
+
+  # check DirectMessage
+  def check_direct( checkinfo )
+    check_generic( DIRECT_MESSAGES, checkinfo )
   end
 
   def process_stream( json )
@@ -575,7 +500,7 @@ class TwiProwl
       source = nil
     end
          
-    desc = json['text']
+    desc = retweets ? retweets['text'] : json['text']
     desc = unescape( desc )
 
     # RT event
@@ -677,6 +602,7 @@ class TwiProwl
     end
   end
 
+  public
   def run
     return if ( @thread and @thread.alive? ) or @shutdown
     info "Starting basic thread for \"#{@application}\"."
@@ -685,7 +611,7 @@ class TwiProwl
         check( @mentions ) unless @streaming
         check( @direct )
         check( @retweets ) unless @streaming
-        check( @remotter )
+        check( @unfollowed )
         check( @membership ) unless @streaming
         sleep 1
       end # loop
