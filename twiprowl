@@ -394,7 +394,7 @@ class TwiProwl
             json, res = get_json( url, false ) # don't use auth API rate
             rate = res['X-RateLimit-Remaining'] ? res['X-RateLimit-Remaining'].to_i : 0
           end 
-          screen_names << json ? "@#{json['screen_name']}" : "ID:#{id}"
+          screen_names.push( json ? "@#{json['screen_name']}" : "ID:#{id}" )
         end
       
         if screen_names.size > 1
@@ -404,8 +404,7 @@ class TwiProwl
         else
           string = screen_names[0]
         end
-        desc = string
-        desc += (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
+        desc = string + (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
