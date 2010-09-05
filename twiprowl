@@ -370,6 +370,7 @@ class TwiProwl
 
   # checking followers
   def check_followers( checkinfo )
+    return unless checkinfo.enable
     return unless rate_limit_check( @threshold )
     cursor = -1
     users = Array.new
@@ -419,6 +420,7 @@ class TwiProwl
 
   # checking list membership
   def check_membership( checkinfo )
+    return unless checkinfo.enable
     return unless rate_limit_check( @threshold )
     cursor = -1
     lists = Array.new
