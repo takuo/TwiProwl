@@ -28,12 +28,13 @@ Version : 1.1.0
 
 = config.yml =
 
-LogDir: <Log Directory>
-Debug: <Debugging ouput to log. true/false >
+LogDir: /tmp               # Log Directory
+Debug: false               # Debugging ouput to log.
+Daemon: true               # Daemon mode.
 
 Prowl:
- APIKey: <the Prowl API Key>
- ProxyURL: <HTTP Proxy like http://user:pass@host:port/ >
+ APIKey: xxxxxxxxxxxxxxxx  # the Prowl API Key
+# ProxyURL: http://user:pass@host:port/ 
 
 Accounts:
  -
