@@ -13,6 +13,8 @@ Accounts:
   Streaming: false         # use User streams API
   RateLimitThreshold: 20
   UseProxy: false          # <= use Prowl::ProxyURL
+  IgnoreSelf: true         # ignore All event by self
+  SendDM: true             # send DirectMessage on Unfollowed and Membership event
   Mentions:                # Event on Mentions
     Enable: true
     Priority: 1

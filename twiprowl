@@ -35,6 +35,7 @@ class TwiProwl
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
   RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
+  STATUS_UPDATE = "#{API_BASE}statuses/update.json"
   STREAM_URL = "https://betastream.twitter.com/2b/user.json"
 
   CONSUMER_KEY = 'nqjjOwQ207D1r3sPVgRhA'
@@ -67,6 +68,8 @@ class TwiProwl
     @use_proxy = config['UseProxy']
     @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
     @streaming = config.key?( 'Streaming' ) ? config['Streaming'] : false
+    @dm_notify = config.key?( 'SendDM' ) ? config['SendDM'] : false
+    @ignore_self = config.key?( 'IgnoreSelf' ) ? config['IgnoreSelf'] : true
 
     process_xauth( @user )
     rate_limit_status( true )
@@ -332,7 +335,7 @@ class TwiProwl
 
       if checkinfo.last_id < 0
         debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
-      else
+      elsif !@ignore_self or screen_name != @user
         debug "Prowling: %s %s" % [ event, desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
@@ -412,6 +415,7 @@ class TwiProwl
                :description => "#{Unicode::E023} #{desc}",
                :priority => checkinfo.priority
                )
+        send_dm( desc )
       end
     end
     checkinfo.followers = users
@@ -450,6 +454,7 @@ class TwiProwl
                :description => desc,
                :priority => checkinfo.priority
                )
+        send_dm( desc )
       end
 
       diff = lists - checkinfo.followers
@@ -470,6 +475,7 @@ class TwiProwl
                :description => desc,
                :priority => checkinfo.priority
                )
+        send_dm( desc )
       end
     end
     checkinfo.followers = lists
@@ -488,6 +494,18 @@ class TwiProwl
   # check DirectMessage
   def check_direct( checkinfo )
     check_generic( DIRECT_MESSAGES, checkinfo )
+  end
+
+  def send_dm( text )
+    return # because TwiProwl is read-only application
+    return unless @dm_notify
+    status = "d #{@user} #{text}"
+    info "Sending DirectMessage to #{@user}..."
+    res = @access_token.post( STATUS_UPDATE, { "status" => status } )
+    if res.code != "200"
+      error "Failed to send DirectMessage: HTTP/#{res.code}"
+      puts res.body
+    end
   end
 
   def process_stream( json )
@@ -520,7 +538,8 @@ class TwiProwl
 
     # mentions event   
     if mentions and mentions.size > 0 and
-      mentions.find do |m| m['screen_name'] == @user end
+      mentions.find do |m| m['screen_name'] == @user end and
+      ( !@ignore_self or source != @user )
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
       debug "Prowling: %s %s" % [ event, desc ]
@@ -542,6 +561,7 @@ class TwiProwl
                :event => "List membership",
                :description => "#{Unicode::E337} #{desc}",
                :priority => @membership.priority )
+        send_dm( desc )
       end
     when "list_member_removed"
       if json['target']['screen_name'] == @user and @membership.enable
@@ -551,6 +571,7 @@ class TwiProwl
                :event => "List membership",
                :description => "#{Unicode::E333} #{desc}",
                :priority => @membership.priority ) 
+        send_dm( desc )
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
@@ -562,6 +583,7 @@ class TwiProwl
                :event => "Favorite by @#{source}",
                :description => "#{Unicode::E32F} #{desc}",
                :priority => @favorite.priority )
+        send_dm( desc )
       end
     when "unfavorite"
       target = json['target_object']['user']['screen_name']
@@ -573,6 +595,7 @@ class TwiProwl
                :event => "Unfavorite by @#{source}",
                :description => "#{Unicode::E421} #{desc}",
                :priority => @favorite.priority )
+        send_dm( desc )
       end
     else
       debug "Event: #{event}" unless event.nil? || event.empty?
