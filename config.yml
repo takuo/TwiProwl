@@ -1,4 +1,4 @@
-LogDir: /home/gonbe/var/log
+LogDir: /tmp
 Debug: false
 Daemon: true
 
@@ -10,19 +10,32 @@ Accounts:
  -
   Application: "Twitter"
   User: example_username
-  Streaming: false
-  Favorite: false
-  FavoritePriority: 0
-  MentionsCount: 10
-  MentionsInterval: 300
-  MentionsPriority: 1
-  DirectCount: 10
-  DirectInterval: 600
-  DirectPriority: 0
-  RetweetsCount: 10
-  RetweetsInterval: 300
-  RetweetsPriority: 1
+  Streaming: false         # use User streams API
   RateLimitThreshold: 20
-  UseProxy: false
-  RemotterInterval: 1800
-  RemotterPriority: 0
+  UseProxy: false          # <= use Prowl::ProxyURL
+  Mentions:                # Event on Mentions
+    Enable: true
+    Priority: 1
+    Count: 10              # <= ignored when Streaming
+    Interval: 300          # <= ignored when Streaming
+  Direct:                  # Event on Direct Messages
+    Enable: true
+    Priority: 0
+    Count: 10
+    Interval: 600
+  Retweets:                # Event on Retweets
+    Enbale: true
+    Priority: 0
+    Count: 10              # <= ignored when Streaming
+    Interval: 300          # <= ignored when Streaming
+  Membership:              # Event on List Membership
+    Enable: true
+    Priority: 0
+    Interval: 3600         # <= ignored when Streaming
+  Unfollowed:              # Event on Unfollowed, requires many API rate
+    Enable: true
+    Priority: 0
+    Interval: 1800
+  Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
+    Enable: true
+    Priority: 0
