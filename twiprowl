@@ -85,7 +85,7 @@ class TwiProwl
       checkinfo.last_id  = -1
       checkinfo.priority = 0
       checkinfo.count    = 10
-      checkinfo.ignore   = false
+      checkinfo.ignore   = true
       checkinfo.negative = false
       next unless conf = config[checkinfo.name]
       checkinfo.enable   = conf['Enable']   if conf.key?( 'Enable' )
