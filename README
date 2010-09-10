@@ -48,11 +48,13 @@ Accounts:
     Priority: 0            # Prowl priority, -2 to 2
     Count: 10              # Max number of tweet to fetch (ignored when Streaming)
     Interval: 300          # polling interval (ignored when Streaming)
+    IgnoreSelf: false      # Ignore Mention from myself
   Direct:                  # Event on Direct Messages
     Enable: false
     Priority: 0
     Count: 10
     Interval: 600
+    IgnoreSelf: false      # Ignore DM from myself
   Retweets:                # Event on Retweets
     Enbale: false
     Priority: 0
@@ -62,6 +64,8 @@ Accounts:
     Enable: false
     Priority: 0
     Interval: 3600         # <= ignored when Streaming
+    IgnoreSelf: false      # Ignore event by myself
+    IgnoreNegative: false  # Ignore removal event
   Unfollowed:              # Event on Unfollowed, requires many API rate
     Enable: false
     Priority: 0
@@ -69,5 +73,7 @@ Accounts:
   Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
     Enable: false
     Priority: 0
+    IgnoreSelf: false      # Ignore favorite event by myself
+    IgnoreNegative: false  # Ignore Unfavorite event
  - 
   <Other account config here>
