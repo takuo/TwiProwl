@@ -18,11 +18,13 @@ Accounts:
     Priority: 1
     Count: 10              # <= ignored when Streaming
     Interval: 300          # <= ignored when Streaming
+    IgnoreSelf: true       # Ignore mention by myself
   Direct:                  # Event on Direct Messages
     Enable: true
     Priority: 0
     Count: 10
     Interval: 600
+    IgnoreSelf: true       # Ignore DM event from myself
   Retweets:                # Event on Retweets
     Enbale: true
     Priority: 0
@@ -32,6 +34,8 @@ Accounts:
     Enable: true
     Priority: 0
     Interval: 3600         # <= ignored when Streaming
+    IgnoreSelf: true       # Ignore event by myself
+    IgnoreNegative: false  # Ignore remove event
   Unfollowed:              # Event on Unfollowed, requires many API rate
     Enable: true
     Priority: 0
@@ -39,3 +43,5 @@ Accounts:
   Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
     Enable: true
     Priority: 0
+    IgnoreSelf: true       # Ignore event by myself
+    IgnoreNegative: false  # Ignore Unfavorite event
