@@ -43,7 +43,7 @@ class TwiProwl
 
   CheckInfo = Struct.new( :name, :func, :interval, :symbol,
                           :last_id, :enable, :count, :priority,
-                          :followers, :thread, :time )
+                          :followers, :ignore, :negative, :thread, :time )
 
   attr_accessor :thread, :stream_thread
 
@@ -85,11 +85,15 @@ class TwiProwl
       checkinfo.last_id  = -1
       checkinfo.priority = 0
       checkinfo.count    = 10
+      checkinfo.ignore   = false
+      checkinfo.negative = false
       next unless conf = config[checkinfo.name]
       checkinfo.enable   = conf['Enable']   if conf.key?( 'Enable' )
       checkinfo.priority = conf['Priority'] if conf.key?( 'Priority' )
       checkinfo.count    = conf['Count']    if conf.key?( 'Count' )
       checkinfo.interval = conf['Interval'] if conf.key?( 'Interval' )
+      checkinfo.ignore   = conf['IgnoreSelf'] if conf.key?( 'IgnoreSelf' )
+      checkinfo.negative = conf['IgnoreNegative'] if conf.key?( 'IgnoreNegative' )
     end
   end
 
@@ -319,9 +323,9 @@ class TwiProwl
     end
     request = api + "?" + params.map do |k,v| "#{k}=#{v}" end.join( '&' )
     json, res = get_json( request, true )
-    @rate = res['X-RateLimit-Remaining'].to_i
-    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i)
     return if json.nil?
+    @rate = res['X-RateLimit-Remaining'].to_i rescue nil
+    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i) rescue nil
 
     json.reverse.each do |obj|
       screen_name = obj.key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
@@ -332,7 +336,7 @@ class TwiProwl
 
       if checkinfo.last_id < 0
         debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
-      else
+      elsif !checkinfo.ignore or screen_name != @user
         debug "Prowling: %s %s" % [ event, desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
@@ -435,7 +439,8 @@ class TwiProwl
     debug "Current memberships: #{lists.size}, Previous: #{checkinfo.followers.size}"
     if checkinfo.followers.size > 0
       diff = checkinfo.followers - lists
-      if diff.size > 0
+      diff.reject! do |x| /^@#{user}\// =~ x end if checkinfo.ignore
+      if diff.size > 0 and checkinfo.negative
 
         if diff.size > 1
           b = diff.pop
@@ -455,6 +460,7 @@ class TwiProwl
       end
 
       diff = lists - checkinfo.followers
+      diff.reject! do |x| /^@#{user}\// =~ x end if checkinfo.ignore
       if diff.size > 0
 
         if diff.size > 1
@@ -509,6 +515,7 @@ class TwiProwl
 
     # RT event
     if retweets and retweets['user']['screen_name'] == @user
+      return if @retweets.ignore and source == @user
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
       debug "Prowling: %s %s" % [ event, desc ]
@@ -523,6 +530,7 @@ class TwiProwl
     # mentions event   
     if mentions and mentions.size > 0 and
       mentions.find do |m| m['screen_name'] == @user end
+      return if @mentions.ignore and source == @user
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
       debug "Prowling: %s %s" % [ event, desc ]
@@ -537,7 +545,8 @@ class TwiProwl
     # Membership event
     case event
     when "list_member_added"
-      if json['target']['screen_name'] == @user and @membership.enable
+      if json['target']['screen_name'] == @user and @membership.enable and
+        (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been added into: #{json['target_object']['full_name']}" 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
@@ -546,7 +555,9 @@ class TwiProwl
                :priority => @membership.priority )
       end
     when "list_member_removed"
-      if json['target']['screen_name'] == @user and @membership.enable
+      if json['target']['screen_name'] == @user and
+        @membership.enable and !@membership.negative and
+        (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been removed from: #{json['target_object']['full_name']}" 
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
@@ -556,7 +567,8 @@ class TwiProwl
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
-      if target == @user and @favorite.enable
+      if target == @user and @favorite.enable and
+        (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
         prowl( :apikey => @@prowl_conf['APIKey'],
@@ -567,7 +579,9 @@ class TwiProwl
       end
     when "unfavorite"
       target = json['target_object']['user']['screen_name']
-      if target == @user and @favorite.enable
+      if target == @user and @favorite.enable and
+        !@favorite.negative and
+        (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
         prowl( :apikey => @@prowl_conf['APIKey'],
