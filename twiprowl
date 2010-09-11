@@ -523,7 +523,7 @@ class TwiProwl
              :application=> @application,
              :event => event,
              :description => "#{Unicode::E00F} #{desc}",
-             :priority => @mentions.priority ) if @retweets.enable
+             :priority => @retweets.priority ) if @retweets.enable
       return
     end
 
