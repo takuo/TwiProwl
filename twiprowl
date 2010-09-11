@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.1.0"
+TWIPROWL_VERSION = "1.2.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
