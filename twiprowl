@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.2.0"
+TWIPROWL_VERSION = "1.3.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -501,6 +501,7 @@ class TwiProwl
   def process_stream( json )
     mentions = json['entities'] ? json['entities']['user_mentions'] : nil
     retweets = json['retweeted_status']
+    message  = json['direct_message']
     event    = json['event']
     if json['user']
       source = json['user']['screen_name']
@@ -539,6 +540,20 @@ class TwiProwl
              :event => event,
              :description => "#{Unicode::E10F} #{desc}",
              :priority => @mentions.priority ) if @mentions.enable
+      return
+    end
+
+    # direct message
+    if message and message['recipient_screen_name'] == @user and
+      (!@direct.ignore or message['sender_screen_name'] != @user)
+      desc = unescape( message['text'] )
+      event = "DM from @#{message['sender_screen_name']}"
+      debug "Prowling: %s %s" % [ event, desc ]
+      prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => event,
+             :description => "#{Unicode::E103} #{desc}",
+             :priority => @direct.priority ) if @direct.enable
       return
     end
 
@@ -628,7 +643,7 @@ class TwiProwl
     @thread = Thread.new do 
       loop do
         check( @mentions ) unless @streaming
-        check( @direct )
+        check( @direct ) unless @streaming
         check( @retweets ) unless @streaming
         check( @unfollowed )
         check( @membership ) unless @streaming
