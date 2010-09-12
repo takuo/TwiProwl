@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 1.2.0
+Version : 1.3.0
 
 1. install some ruby libraries
 
@@ -40,7 +40,7 @@ Accounts:
  -
   Application: <application name (optional)> 
   User: <Twitter username>
-  Streaming: false         # use User streams API for Mentions,RTs,Members,Favs
+  Streaming: false         # use User streams API for Mentions,Directs,RTs,Memberships and Favs
   RateLimitThreshold: 20   # polling limitter for basic API
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
@@ -52,8 +52,8 @@ Accounts:
   Direct:                  # Event on Direct Messages
     Enable: false
     Priority: 0
-    Count: 10
-    Interval: 600
+    Count: 10              # <= ignored when Streaming
+    Interval: 600          # <= ignored when Streaming
     IgnoreSelf: false      # Ignore DM from myself
   Retweets:                # Event on Retweets
     Enbale: false

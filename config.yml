@@ -22,8 +22,8 @@ Accounts:
   Direct:                  # Event on Direct Messages
     Enable: true
     Priority: 0
-    Count: 10
-    Interval: 600
+    Count: 10              # <= ignored when Streaming
+    Interval: 600          # <= ignored when Streaming
     IgnoreSelf: true       # Ignore DM event from myself
   Retweets:                # Event on Retweets
     Enbale: true
