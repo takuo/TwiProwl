@@ -1,3 +1,8 @@
+2010-09-    Takuo Kitame  <kitame@debian.org>
+
+	* pre-1.3.0
+	* use Streaming API to check DirectMessage.
+
 2010-09-12  Takuo Kitame  <kitame@debian.org>
 
 	* 1.2.0
