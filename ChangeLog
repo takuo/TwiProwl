@@ -1,6 +1,6 @@
-2010-09-  Takuo Kitame  <kitame@debian.org>
+2010-09-12  Takuo Kitame  <kitame@debian.org>
 
-	* pre-1.2.0
+	* 1.2.0
 	* Added ability to disable notification for event which occuered by myself. (Default: true)
 	* Added ability to disable notification for negative event of Membership or Favorite. (Default: false)
 
