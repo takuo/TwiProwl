@@ -17,6 +17,7 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
+Thread.abort_on_exception = true
 
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
@@ -28,10 +29,6 @@ class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
-  MENTIONS = "#{API_BASE}statuses/mentions.json"
-  DIRECT_MESSAGES = "#{API_BASE}direct_messages.json"
-  RETWEETS = "#{API_BASE}statuses/retweets_of_me.json"
-  MEMBERSHIP = "#{API_BASE}lists/memberships.json?screen_name=%s&cursor=%d"
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
   RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
@@ -41,7 +38,7 @@ class TwiProwl
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new( :name, :func, :interval, :symbol,
+  CheckInfo = Struct.new( :name, :interval, :symbol,
                           :last_id, :enable, :count, :priority,
                           :followers, :ignore, :negative, :thread, :time )
 
@@ -51,12 +48,12 @@ class TwiProwl
     @@conf = global
     _prowl_conf_validate( @@conf['Prowl'] )
     @application = config.key?( 'Application' ) ? config['Application'] : "Twitter"
-    load_config( config, [ # name, func, interval( sec )
-      @mentions = CheckInfo.new( "Mentions", "check_mentions", 300 ),
-      @direct   = CheckInfo.new( "Direct", "check_direct", 600 ),
-      @retweets = CheckInfo.new( "Retweets", "check_retweets", 600 ),
-      @membership = CheckInfo.new( "Membership", "check_membership", 1200 ),
-      @unfollowed = CheckInfo.new( "Unfollowed", "check_followers", 1800 ),
+    load_config( config, [ # name, interval( sec )
+      @mentions = CheckInfo.new( "Mentions" ),
+      @direct   = CheckInfo.new( "Direct" ),
+      @retweets = CheckInfo.new( "Retweets" ),
+      @membership = CheckInfo.new( "Membership" ),
+      @unfollowed = CheckInfo.new( "Unfollowed", 1800 ),
       @favorite = CheckInfo.new( "Favorite" )
     ] )
     @direct.symbol = Unicode::E103
@@ -66,8 +63,6 @@ class TwiProwl
     @user = config['User']
     @use_proxy = config['UseProxy']
     @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
-    @streaming = config.key?( 'Streaming' ) ? config['Streaming'] : false
-
     process_xauth( @user )
     rate_limit_status( true )
     @shutdown = false
@@ -160,7 +155,7 @@ class TwiProwl
       end
     end
     @token = OAuth::Token.new( @access_token.token,
-                               @access_token.secret ) if @streaming
+                               @access_token.secret )
   end
 
   def rate_limit_status( auth = false )
@@ -311,67 +306,6 @@ class TwiProwl
     return res.code == "200" ? [ JSON::parse( res.body ), res ] : [ nil, res ]
   end
 
-  def check_generic( api, checkinfo )
-    return unless rate_limit_check( @threshold )
-    info "Checking: #{checkinfo.name}"
-    params = Hash.new
-    if checkinfo.last_id > 0
-      params['since_id'] = checkinfo.last_id
-      params['count']    = checkinfo.count
-    else
-      params['count']    = 1
-    end
-    request = api + "?" + params.map do |k,v| "#{k}=#{v}" end.join( '&' )
-    json, res = get_json( request, true )
-    return if json.nil?
-    @rate = res['X-RateLimit-Remaining'].to_i rescue nil
-    @reset_at = Time.at(res['X-RateLimit-Reset'].to_i) rescue nil
-
-    json.reverse.each do |obj|
-      screen_name = obj.key?('sender_screen_name') ? obj['sender_screen_name'] : obj['user']['screen_name']
-      event = "#{checkinfo.name}: #{screen_name}"
-
-      desc = unescape( obj['text'] )
-      desc = checkinfo.symbol + " " + desc if checkinfo.symbol
-
-      if checkinfo.last_id < 0
-        debug "#{checkinfo.name}: initial last_id = #{obj['id']}"
-      elsif !checkinfo.ignore or screen_name != @user
-        debug "Prowling: %s %s" % [ event, desc ]
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => event,
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-        sleep 2
-      end
-      checkinfo.last_id = obj['id']
-    end
-    debug "#{checkinfo.name}: last_id = #{checkinfo.last_id}"
-    return
-  end
-
-  # common check
-  def check( checkinfo )
-    return unless checkinfo.enable
-    return if !checkinfo.time.nil? &&
-               Time.now - checkinfo.time < checkinfo.interval
-    checkinfo.time = Time.now
-    Thread.new do
-      begin
-        method( checkinfo.func ).call( checkinfo )
-      rescue
-        error "Error in #{checkinfo.name}: #{$!.to_s}"
-        debug $!.backtrace.join("\n")
-      end
-
-      checkinfo.time = Time.now
-      info "Done: #{checkinfo.name}"
-      debug "#{checkinfo.name} sleep: #{checkinfo.interval} secs"
-    end
-  end
-
   # checking followers
   def check_followers( checkinfo )
     return unless checkinfo.enable
@@ -420,82 +354,6 @@ class TwiProwl
       end
     end
     checkinfo.followers = users
-  end
-
-  # checking list membership
-  def check_membership( checkinfo )
-    return unless checkinfo.enable
-    return unless rate_limit_check( @threshold )
-    cursor = -1
-    lists = Array.new
-    while cursor != 0
-      info "Checking: Membership: cursor=#{cursor}"
-      url = MEMBERSHIP % [ @user, cursor ]
-      json, res = get_json( url, true )
-      return if json.nil?
-      lists.concat( json['lists'].map{ |list| "#{list['full_name']}" } )
-      cursor = json['next_cursor']
-    end
-    debug "Current memberships: #{lists.size}, Previous: #{checkinfo.followers.size}"
-    if checkinfo.followers.size > 0
-      diff = checkinfo.followers - lists
-      diff.reject! do |x| /^@#{user}\// =~ x end if checkinfo.ignore
-      if diff.size > 0 and checkinfo.negative
-
-        if diff.size > 1
-          b = diff.pop
-          string = diff.join(", ")
-          string += " and #{b}"
-        else
-          string = diff[0]
-        end
-        desc = "You have been removed from: " +  string
-
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => "List membership",
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-      end
-
-      diff = lists - checkinfo.followers
-      diff.reject! do |x| /^@#{user}\// =~ x end if checkinfo.ignore
-      if diff.size > 0
-
-        if diff.size > 1
-          b = diff.pop
-          string = diff.join(", ")
-          string += " and #{b}"
-        else
-          string = diff[0]
-        end
-        desc = "You have been added to: " +  string
-
-        prowl( :apikey => @@prowl_conf['APIKey'],
-               :application=> @application,
-               :event => "List membership",
-               :description => desc,
-               :priority => checkinfo.priority
-               )
-      end
-    end
-    checkinfo.followers = lists
-  end
-
-  # check Mentions
-  def check_mentions( checkinfo )
-    check_generic( MENTIONS, checkinfo )
-  end
-
-  # check Retweets
-  def check_retweets( checkinfo )
-    check_generic( RETWEETS, checkinfo )
-  end
-
-  # check DirectMessage
-  def check_direct( checkinfo )
-    check_generic( DIRECT_MESSAGES, checkinfo )
   end
 
   def process_stream( json )
@@ -639,21 +497,17 @@ class TwiProwl
   public
   def run
     return if ( @thread and @thread.alive? ) or @shutdown
+    return unless @unfollowed.enable
     info "Starting basic thread for \"#{@application}\"."
     @thread = Thread.new do 
       loop do
-        check( @mentions ) unless @streaming
-        check( @direct ) unless @streaming
-        check( @retweets ) unless @streaming
-        check( @unfollowed )
-        check( @membership ) unless @streaming
-        sleep 1
+        check_followers( @unfollowed ) 
+        sleep @unfollowed.interval 
       end # loop
     end
   end
 
   def stream_run
-    return if ! @streaming
     return if ( @stream_thread and @stream_thread.alive? ) or @shutdown
     info "Starting streaming thread for \"#{@application}\"."
     @stream_thread = Thread.new do
@@ -756,7 +610,7 @@ print "TwiProwl is running.\n"
 loop do
   accounts.each do |ac|
     ac.run
-    ac.stream_run 
+    ac.stream_run
   end
   sleep 60
 end
