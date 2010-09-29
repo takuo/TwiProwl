@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 1.3.0
+Version : 1.4.0
 
 1. install some ruby libraries
 
@@ -13,7 +13,7 @@ Version : 1.3.0
    $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8
    $ sudo gem install --no-rdoc --no-ri oauth
 
- for Ruby >= 1.9.1
+ for Ruby >= 1.9.1 (recommend >= 1.9.2)
   - openssl
   - ruby-hmac >= 0.4.0 (from rubygems)
   - oauth (from rubygems)
@@ -40,37 +40,30 @@ Accounts:
  -
   Application: <application name (optional)> 
   User: <Twitter username>
-  Streaming: false         # use User streams API for Mentions,Directs,RTs,Memberships and Favs
   RateLimitThreshold: 20   # polling limitter for basic API
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
     Enable: false          # Enable, true or false
     Priority: 0            # Prowl priority, -2 to 2
-    Count: 10              # Max number of tweet to fetch (ignored when Streaming)
-    Interval: 300          # polling interval (ignored when Streaming)
     IgnoreSelf: false      # Ignore Mention from myself
   Direct:                  # Event on Direct Messages
     Enable: false
     Priority: 0
-    Count: 10              # <= ignored when Streaming
-    Interval: 600          # <= ignored when Streaming
     IgnoreSelf: false      # Ignore DM from myself
   Retweets:                # Event on Retweets
     Enbale: false
     Priority: 0
-    Count: 10              # <= ignored when Streaming
-    Interval: 300          # <= ignored when Streaming
+    IgnoreSelf: false      # Ignore RT by myself
   Membership:              # Event on List Membership
     Enable: false
     Priority: 0
-    Interval: 3600         # <= ignored when Streaming
     IgnoreSelf: false      # Ignore event by myself
     IgnoreNegative: false  # Ignore removal event
-  Unfollowed:              # Event on Unfollowed, requires many API rate
+  Unfollowed:              # Event on Unfollowed, requires API rate
     Enable: false
     Priority: 0
     Interval: 1800
-  Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
+  Favorite:                # Event on Favorite/Unfavorite
     Enable: false
     Priority: 0
     IgnoreSelf: false      # Ignore favorite event by myself
