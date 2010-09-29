@@ -10,38 +10,30 @@ Accounts:
  -
   Application: "Twitter"
   User: example_username
-  Streaming: false         # use User streams API
   RateLimitThreshold: 20
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
     Enable: true
     Priority: 1
-    Count: 10              # <= ignored when Streaming
-    Interval: 300          # <= ignored when Streaming
     IgnoreSelf: true       # Ignore mention by myself
   Direct:                  # Event on Direct Messages
     Enable: true
     Priority: 0
-    Count: 10              # <= ignored when Streaming
-    Interval: 600          # <= ignored when Streaming
     IgnoreSelf: true       # Ignore DM event from myself
   Retweets:                # Event on Retweets
     Enbale: true
     Priority: 0
-    Count: 10              # <= ignored when Streaming
-    Interval: 300          # <= ignored when Streaming
   Membership:              # Event on List Membership
     Enable: true
     Priority: 0
-    Interval: 3600         # <= ignored when Streaming
     IgnoreSelf: true       # Ignore event by myself
     IgnoreNegative: false  # Ignore remove event
-  Unfollowed:              # Event on Unfollowed, requires many API rate
-    Enable: true
-    Priority: 0
-    Interval: 1800
-  Favorite:                # Event on Favorite/Unfavorite, requires Streaming.
+  Favorite:                # Event on Favorite/Unfavorite
     Enable: true
     Priority: 0
     IgnoreSelf: true       # Ignore event by myself
     IgnoreNegative: false  # Ignore Unfavorite event
+  Unfollowed:              # Event on Unfollowed, requiresi API rate
+    Enable: true
+    Priority: 0
+    Interval: 1800
