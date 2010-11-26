@@ -21,7 +21,7 @@ Accounts:
     Priority: 0
     IgnoreSelf: true       # Ignore DM event from myself
   Retweets:                # Event on Retweets
-    Enbale: true
+    Enable: true
     Priority: 0
   Membership:              # Event on List Membership
     Enable: true
