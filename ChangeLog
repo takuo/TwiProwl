@@ -1,3 +1,7 @@
+2011-02-22  Takuo Kitame  <kitame@debian.org>
+
+	* remove unncessary Net::HTTP hack
+
 2010-09-29  Takuo Kitame  <kitame@debian.org>
 
 	* 1.4.0
