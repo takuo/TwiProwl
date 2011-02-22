@@ -30,19 +30,6 @@ unless Process.respond_to?(:daemon)
   end
 end
 
-# implemented for Streamin API
-module Net
-  class HTTPResponse
-    def each_line( rs = "\n" )
-      stream_check
-      while line = @socket.readuntil( rs )
-        yield line
-      end
-      self
-    end
-  end
-end
-
 # oAuth fix for >= 1.9.0
 if RUBY_VERSION >= "1.9.0" and HMAC::VERSION < "0.4.0"
   module HMAC

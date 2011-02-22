@@ -464,7 +464,7 @@ class TwiProwl
       end
     else
       debug "Event: #{event}" unless event.nil? || event.empty?
-    end          
+    end
   end
 
   def stream_monitor
@@ -475,16 +475,22 @@ class TwiProwl
     # request.set_form_data( { "replies" => "all" } )
     request.oauth!( http, @consumer, @token )
     begin
+      buf = ''
       http.request( request ) do |res|
-        res.each_line( "\r\n" ) do |line|
+        raise RuntimeError, "Error on HTTP HTTP:#{res.code} #{res.to_s}" if res.
+code.to_i != 200
+        res.read_body do |str|
+          buf << str
           @stream_error_count = 0
-          json = JSON::parse( line ) rescue next
-          begin
-            process_stream( json )
-          rescue
-            error( "BUG: error while process JSON" )
-            error( $!.backtrace.join("\n") )
-            error( $!.to_s )
+          buf.gsub!( /[\s\S]+?\r\n/ ) do |chunk|
+            json = JSON::parse( chunk ) rescue next
+            begin
+              process_stream( json )
+            rescue
+              error( "BUG: error while process JSON" )
+              error( $!.backtrace.join("\n") )
+              error( $!.to_s )
+            end
           end
         end
       end
