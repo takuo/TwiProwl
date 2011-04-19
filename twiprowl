@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.4.0"
+TWIPROWL_VERSION = "1.5.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -55,6 +55,9 @@ class TwiProwl
       @unfollowed = CheckInfo.new( "Unfollowed", 1800 ),
       @favorite = CheckInfo.new( "Favorite" )
     ] )
+    if config['RegexpMatch']
+      @match = config['RegexpMatch']
+    end
     @direct.symbol = Unicode::E103
     @membership.followers = Array.new
     @unfollowed.followers = Array.new
@@ -412,6 +415,25 @@ class TwiProwl
              :description => "#{Unicode::E103} #{desc}",
              :priority => @direct.priority ) if @direct.enable
       return
+    end
+
+    if @match and desc
+      @match.each do |m|
+        next unless m['Enable']
+        screen_name = m.key?( 'User' ) ? m['User'] : ".*"
+        body_text   = m.key?( 'Text' ) ? m['Text'] : ".*"
+        u = Regexp.new( screen_name, 'i')
+        t = Regexp.new( body_text )
+        if u =~ source and t =~ desc
+          debug "Prowling: RegexpMatch"
+          prowl( :apikey => @@prowl_conf['APIKey'],
+             :application=> @application,
+             :event => "@#{source} says",
+             :description => "#{Unicode::E317} #{desc}",
+             :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 )
+          return
+        end
+      end
     end
 
     # Membership event

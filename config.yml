@@ -37,3 +37,14 @@ Accounts:
     Enable: true
     Priority: 0
     Interval: 1800
+  RegexpMatch:
+    -
+      User: "eew_jp"
+      Text: ".*"
+      Priority: 2
+      Enable: true
+    -
+      User: ".*"
+      Text: "TwiProwl"
+      Priority: 0
+      Enable: true
