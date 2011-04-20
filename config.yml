@@ -40,11 +40,12 @@ Accounts:
   RegexpMatch:
     -
       User: "eew_jp"
-      Text: ".*"
       Priority: 2
       Enable: true
     -
-      User: ".*"
       Text: "TwiProwl"
       Priority: 0
       Enable: true
+    -
+      User: "^northeye$"
+      Text: "TwiProwl|twiprowl"
