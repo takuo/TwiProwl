@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.5.0"
+TWIPROWL_VERSION = "1.5.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -370,7 +370,7 @@ class TwiProwl
     else
       source = nil
     end
-         
+
     desc = retweets ? retweets['text'] : json['text']
     desc = unescape( desc )
 
@@ -418,13 +418,18 @@ class TwiProwl
     end
 
     if @match and desc
+      if retweets
+        sname = retweets['user']['screen_name']
+      else
+        sname = source
+      end
       @match.each do |m|
         next unless m['Enable']
         screen_name = m.key?( 'User' ) ? m['User'] : ".*"
         body_text   = m.key?( 'Text' ) ? m['Text'] : ".*"
         u = Regexp.new( screen_name, 'i')
         t = Regexp.new( body_text )
-        if u =~ source and t =~ desc
+        if u =~ sname and t =~ desc
           debug "Prowling: RegexpMatch"
           prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
