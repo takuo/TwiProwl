@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 1.4.0
+Version : 1.5.0
 
 1. install some ruby libraries
 
@@ -68,5 +68,17 @@ Accounts:
     Priority: 0
     IgnoreSelf: false      # Ignore favorite event by myself
     IgnoreNegative: false  # Ignore Unfavorite event
+  RegexpMatch:             # notify when match with Regexp
+    -
+      User: "^hogehoge.*"  # Regexp for screen name
+      Text: "hugahuga"     # Regexp for body text
+      Enable: true
+      Priority: 0
+    -                      # all user and text contains "TwiProwl"
+      Text: "TwiProwl"
+      Enable: true
+    -                      # all of takuo_jp's post.
+      User: "takuo_jp"
+      Enable: true
  - 
   <Other account config here>
