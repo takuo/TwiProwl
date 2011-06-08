@@ -1,13 +1,13 @@
 = Instruction =
 
-Version : 1.5.0
+Version : 1.6.0
 
 1. install some ruby libraries
 
  for Ruby 1.8
   - openssl
-  - json
-  - hmac-ruby
+  - json (deb or rubygems)
+  - hmac-ruby (deb or rubygems)
   - oauth (from rubygems)
 
    $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8

@@ -1,3 +1,9 @@
+2011-06-09  Takuo Kitame  <kitame@debian.org>
+
+	* 1.6.0
+	* Added id->screen_name database to track removed followers.
+	* some bugfixes.
+
 2011-04-20  Takuo Kitame  <kitame@debian.org>
 
 	* 1.5.0
