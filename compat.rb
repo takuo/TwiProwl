@@ -9,11 +9,12 @@
 #
 begin
   require 'oauth'
+  require 'hmac'
 rescue LoadError
   require 'rubygems'
   require 'oauth'
+  require 'hmac'
 end
-require 'hmac'
 
 # define Process.daemon (ruby 1.9 feature)
 unless Process.respond_to?(:daemon)
@@ -54,7 +55,7 @@ end
 module Unicode
   def self.const_missing( codepoint )  
     if codepoint.to_s =~ /^([0-9a-fA-F]{4,5}|10[0-9a-fA-F]{4})$/
-      const_set(codepoint, [$1.to_i(16)].pack("U").freeze)
+      const_set( codepoint, [$1.to_i(16)].pack("U").freeze )
     else
       raise NameError, "Uninitialized constant: Unicode::#{codepoint}"
     end
