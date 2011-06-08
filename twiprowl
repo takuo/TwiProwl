@@ -1,4 +1,4 @@
-#!/usr/bin/env ruby
+#!/usr/bin/env ruby1.9.1
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.5.1"
+TWIPROWL_VERSION = "1.6.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -29,6 +29,7 @@ class TwiProwl
   LOGFILE = "twiprowl.log"
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
+  XFOLLOWERS = "#{API_BASE}statuses/followers.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
   RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
   STREAM_URL = "https://userstream.twitter.com/2/user.json"
@@ -58,6 +59,9 @@ class TwiProwl
     if config['RegexpMatch']
       @match = config['RegexpMatch']
     end
+    if config['RepliesAll']
+      @replies_all = true
+    end
     @direct.symbol = Unicode::E103
     @membership.followers = Array.new
     @unfollowed.followers = Array.new
@@ -65,9 +69,17 @@ class TwiProwl
     @user = config['User']
     @use_proxy = config['UseProxy']
     @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
+
+    pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
+    @pdb = PStore.new( pdbfile, true )
     process_xauth( @user )
     rate_limit_status( true )
     @shutdown = false
+    pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
+    @pdb.transaction do
+      @pdb[:idnames] = Hash.new unless @pdb.root?( :idnames )
+    end
+    File.chmod( 0600, pdbfile )
   end
 
   @@conf = Hash.new
@@ -96,17 +108,13 @@ class TwiProwl
 
   def process_xauth( user )
 
-    pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
     access_token = nil
     access_token_secret = nil
 
-    if File.exist?( pdbfile )
-      pdb = PStore.new( pdbfile )
-      pdb.transaction do
-        if pdb.root?( :tokens ) and pdb[ :tokens ][ user ]
-          access_token = pdb[ :tokens ][ user ][ :access_token ]
-          access_token_secret = pdb[ :tokens ][ user ][ :access_token_secret ]
-        end
+    @pdb.transaction do
+      if @pdb.root?( :tokens ) and @pdb[ :tokens ][ user ]
+        access_token = @pdb[ :tokens ][ user ][ :access_token ]
+        access_token_secret = @pdb[ :tokens ][ user ][ :access_token_secret ]
       end
     end
 
@@ -141,16 +149,13 @@ class TwiProwl
           :x_auth_password => pass,
          })
         print " done.\n"
-        pdb = PStore.new( pdbfile )
-        pdb.transaction do
-          pdb[ :tokens ] = Hash.new unless pdb.root?( :tokens )
-          pdb[ :tokens ][ user ] = {
+        @pdb.transaction do
+          @pdb[ :tokens ] = Hash.new unless @pdb.root?( :tokens )
+          @pdb[ :tokens ][ user ] = {
             :access_token => @access_token.token,
             :access_token_secret => @access_token.secret
           }
-          pdb.commit
         end
-        File.chmod( 0600, File.join( pdbfile ) )
       rescue OAuth::Unauthorized
         print "Failed to OAuth due to wrong password or the server error.\n"
         exit 1
@@ -308,6 +313,24 @@ class TwiProwl
     return res.code == "200" ? [ JSON::parse( res.body ), res ] : [ nil, res ]
   end
 
+  def correct_followers
+    cursor = -1
+    names = Hash.new
+    while cursor != 0
+      url = XFOLLOWERS % [ @user, cursor ]
+      json, res = get_json( url, true )
+      break if json.nil? or res.code != "200"
+      cursor = json['next_cursor']
+      json['users'].each do |user|
+        names[user["id_str"]] = user['screen_name']
+      end
+    end    
+    @pdb.transaction do
+      @pdb[:idnames].update( names )
+    end
+  end
+
+
   # checking followers
   def check_followers( checkinfo )
     return unless checkinfo.enable
@@ -320,22 +343,31 @@ class TwiProwl
       json, res = get_json( url, true )
       return if json.nil?
       cursor = json['next_cursor']
-      users.concat( json['ids'].map{ |id| "#{id}" } ) # .map { |u| "@#{u['screen_name']}" } )
+      users.concat( json['ids'].map{ |id| id.to_s } ) # .map { |u| "@#{u['screen_name']}" } )
     end
     debug "Current followers: #{users.size}, Previous: #{checkinfo.followers.size}"
     if checkinfo.followers.size > 0
       diff = checkinfo.followers - users
       if diff.size > 0
+        userdb = nil
+        @pdb.transaction do
+          userdb = @pdb[:idnames]
+        end
         screen_names = Array.new
         rate = 150
         diff.each do |id|
-          url = USER_SHOW % [ id.to_s ]
-          json = nil
-          if rate > @threshold
-            json, res = get_json( url, false ) # don't use auth API rate
-            rate = res['X-RateLimit-Remaining'] ? res['X-RateLimit-Remaining'].to_i : 0
-          end 
-          screen_names.push( json ? "@#{json['screen_name']}" : "ID:#{id}" )
+          screen_name = userdb[id.to_s]
+          if screen_name.nil?
+            screen_name = "ID:#{id}"
+            url = USER_SHOW % [ id.to_s ]
+            json = nil
+            if rate > @threshold
+              json, res = get_json( url, false ) # don't use auth API rate
+              rate = res['X-RateLimit-Remaining'] ? res['X-RateLimit-Remaining'].to_i : 0
+              screen_name = "@#{json['screen_name']}" if json
+            end 
+          end
+          screen_names.push( screen_name )
         end
       
         if screen_names.size > 1
@@ -365,10 +397,18 @@ class TwiProwl
     event    = json['event']
     if json['user']
       source = json['user']['screen_name']
+      sid = json['user']['id_str']
     elsif json['source']
       source = json['source']['screen_name'] 
+      sid = json['source']['id_str']
     else
       source = nil
+    end
+
+    if source and @unfollowed.followers.include?( sid )
+      @pdb.transaction do
+        @pdb[:idnames][sid] = source
+      end 
     end
 
     desc = retweets ? retweets['text'] : json['text']
@@ -379,7 +419,7 @@ class TwiProwl
       return if @retweets.ignore and source == @user
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -394,7 +434,7 @@ class TwiProwl
       return if @mentions.ignore and source == @user
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -408,7 +448,7 @@ class TwiProwl
       (!@direct.ignore or message['sender_screen_name'] != @user)
       desc = unescape( message['text'] )
       event = "DM from @#{message['sender_screen_name']}"
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -430,7 +470,7 @@ class TwiProwl
         u = Regexp.new( screen_name, 'i')
         t = Regexp.new( body_text )
         if u =~ sname and t =~ desc
-          debug "Prowling: RegexpMatch"
+          info "Prowling: RegexpMatch"
           prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => "@#{source} says",
@@ -470,6 +510,7 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
+        info "Prowling: favorite %s" % [ desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Favorite by @#{source}",
@@ -483,11 +524,20 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
+        info "Prowling: unfavorite %s" % [ desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Unfavorite by @#{source}",
                :description => "#{Unicode::E421} #{desc}",
                :priority => @favorite.priority )
+      end
+    when "follow"
+      if json['target']['screen_name'] == @user
+        # @unfollowed.followers.push( json['source']['id'] )
+        @pdb.transaction do
+          @pdb[:idnames][json['source']['id_str']] = json['source']['screen_name']
+          debug "Added idnames: #{json['source']['id_str']} = #{json['source']['screen_name']}"
+        end
       end
     else
       debug "Event: #{event}" unless event.nil? || event.empty?
@@ -499,7 +549,7 @@ class TwiProwl
     uri = URI::parse( STREAM_URL )
     http = http_new( uri, @use_proxy )
     request = Net::HTTP::Post.new( uri.request_uri )
-    # request.set_form_data( { "replies" => "all" } )
+    request.set_form_data( { "replies" => "all" } ) if @replies_all
     request.oauth!( http, @consumer, @token )
     begin
       buf = ''
@@ -532,6 +582,7 @@ code.to_i != 200
     return unless @unfollowed.enable
     info "Starting basic thread for \"#{@application}\"."
     @thread = Thread.new do 
+      correct_followers
       loop do
         check_followers( @unfollowed ) 
         sleep @unfollowed.interval 
