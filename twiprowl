@@ -59,6 +59,9 @@ class TwiProwl
     if config['RegexpMatch']
       @match = config['RegexpMatch']
     end
+    if config['RepliesAll']
+      @replies_all = true
+    end
     @direct.symbol = Unicode::E103
     @membership.followers = Array.new
     @unfollowed.followers = Array.new
@@ -416,7 +419,7 @@ class TwiProwl
       return if @retweets.ignore and source == @user
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -431,7 +434,7 @@ class TwiProwl
       return if @mentions.ignore and source == @user
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -445,7 +448,7 @@ class TwiProwl
       (!@direct.ignore or message['sender_screen_name'] != @user)
       desc = unescape( message['text'] )
       event = "DM from @#{message['sender_screen_name']}"
-      debug "Prowling: %s %s" % [ event, desc ]
+      info "Prowling: %s %s" % [ event, desc ]
       prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => event,
@@ -460,15 +463,14 @@ class TwiProwl
       else
         sname = source
       end
-      debug "Match check"
       @match.each do |m|
         next unless m['Enable']
         screen_name = m.key?( 'User' ) ? m['User'] : ".*"
         body_text   = m.key?( 'Text' ) ? m['Text'] : ".*"
         u = Regexp.new( screen_name, 'i')
         t = Regexp.new( body_text )
-        if u =~ source and t =~ desc
-          debug "Prowling: RegexpMatch"
+        if u =~ sname and t =~ desc
+          info "Prowling: RegexpMatch"
           prowl( :apikey => @@prowl_conf['APIKey'],
              :application=> @application,
              :event => "@#{source} says",
@@ -508,6 +510,7 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
+        info "Prowling: favorite %s" % [ desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Favorite by @#{source}",
@@ -521,6 +524,7 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
+        info "Prowling: unfavorite %s" % [ desc ]
         prowl( :apikey => @@prowl_conf['APIKey'],
                :application=> @application,
                :event => "Unfavorite by @#{source}",
@@ -545,7 +549,7 @@ class TwiProwl
     uri = URI::parse( STREAM_URL )
     http = http_new( uri, @use_proxy )
     request = Net::HTTP::Post.new( uri.request_uri )
-    request.set_form_data( { "replies" => "all" } )
+    request.set_form_data( { "replies" => "all" } ) if @replies_all
     request.oauth!( http, @consumer, @token )
     begin
       buf = ''
