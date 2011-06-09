@@ -71,7 +71,11 @@ class TwiProwl
     @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
 
     pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
-    @pdb = PStore.new( pdbfile, true )
+    begin
+      @pdb = PStore.new( pdbfile, true )
+    rescue
+      @pdb = PStore.new( pdbfile )
+    end
     process_xauth( @user )
     rate_limit_status( true )
     @shutdown = false
