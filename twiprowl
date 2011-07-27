@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.6.0"
+TWIPROWL_VERSION = "1.6.9"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
@@ -146,12 +146,8 @@ class TwiProwl
       print "\n"
       `stty #{revertstty}` rescue nil
       begin
-        print "** Processing xAuth authorization for #{user}..."
-        @access_token = @consumer.get_access_token(nil, {}, {
-          :x_auth_mode => "client_auth",
-          :x_auth_username => user,
-          :x_auth_password => pass,
-         })
+        print "** Processing OAuth authorization for #{user}..."
+        @access_token = get_access_token(user, pass)
         print " done.\n"
         @pdb.transaction do
           @pdb[ :tokens ] = Hash.new unless @pdb.root?( :tokens )
@@ -167,6 +163,53 @@ class TwiProwl
     end
     @token = OAuth::Token.new( @access_token.token,
                                @access_token.secret )
+  end
+
+  def get_access_token(user, pass)
+    rt = @consumer.get_request_token
+    u = URI::parse rt.authorize_url
+    http =  Net::HTTP.new( u.host, u.port )
+    http.use_ssl = true
+    req = Net::HTTP::Post.new(u.request_uri)
+    res = http.request(req)
+    raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
+    at = ot = nil
+    res.body.split(/\n/).each do |line|
+      if /name="authenticity_token" type="hidden" value="([^"]+)"/ =~ line
+        at = $1
+      end
+      if /name="oauth_token" type="hidden" value="([^"]+)"/ =~ line
+        ot = $1
+      end
+      break if at && ot
+    end
+    raise RuntimeError, "Could not get tokens" if at.nil? or ot.nil?
+    query = [ "authenticity_token=#{at}",
+              "oauth_token=#{ot}",
+              "session[username_or_email]=#{user}",
+              "session[password]=#{pass}",
+              "submit=Allow" ].join("&")
+    u = URI::parse( "https://api.twitter.com/oauth/authorize" )
+    http = Net::HTTP.new( u.host, u.port)
+    http.use_ssl = true
+    res = http.post(u.request_uri, query)
+    raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
+    pin = nil
+    lines = res.body.split(/\n/)
+    i = 0
+    while i < lines.size
+      if lines[i] =~ /<code>(\d+)/
+        pin = $1
+        break
+      end
+      i+=1;
+    end
+    puts "PIN: #{pin}"
+    raise RuntimeError, "Could not get tokens" unless pin
+    if pin
+      token = rt.get_access_token( :oauth_verifier => pin )
+    end
+    return token
   end
 
   def rate_limit_status( auth = false )
