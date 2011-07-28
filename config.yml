@@ -14,7 +14,7 @@ Accounts:
  -
   Application: "Twitter"
   NotifyMethods:
-    - "prwol" # Prowl for iPhone
+    - "prowl" # Prowl for iPhone
 #    - "nma"  # Notify My Android for Android
   User: example_username
   RateLimitThreshold: 20
