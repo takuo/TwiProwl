@@ -1,10 +1,10 @@
-#!/usr/bin/env ruby1.9.1
+#!/usr/bin/env ruby
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
 # Version: 1.1
 #
-# Copyright (c) 2009,2010 Takuo Kitame.
+# Copyright (c) 2009,2010,2011 Takuo Kitame.
 #
 # You can redistribute it and/or modify it under the same term as Ruby.
 #
@@ -21,13 +21,16 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "1.6.9"
+TWIPROWL_VERSION = "2.0.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
   LOGFILE = "twiprowl.log"
+
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
+  NMA_API_NOTIFY = "https://www.notifymyandroid.com/publicapi/notify"
+
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
   XFOLLOWERS = "#{API_BASE}statuses/followers.json?screen_name=%s&cursor=%d"
   USER_SHOW  = "#{API_BASE}users/show/%s.json"
@@ -38,7 +41,7 @@ class TwiProwl
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
   ACCESS_SITE = 'https://api.twitter.com'
 
-  CheckInfo = Struct.new( :name, :interval, :symbol,
+  CheckInfo = Struct.new( :name, :interval,
                           :last_id, :enable, :count, :priority,
                           :followers, :ignore, :negative, :thread, :time )
 
@@ -46,7 +49,8 @@ class TwiProwl
 
   def initialize( global, config )
     @@conf = global
-    _prowl_conf_validate( @@conf['Prowl'] )
+    @@conf['ProxyURI'] = URI::parse( @@conf['ProxyURI'] ) if @@conf['ProxyURI']
+    _init_logger
     @application = config.key?( 'Application' ) ? config['Application'] : "Twitter"
     load_config( config, [ # name, interval( sec )
       @mentions = CheckInfo.new( "Mentions" ),
@@ -62,7 +66,6 @@ class TwiProwl
     if config['RepliesAll']
       @replies_all = true
     end
-    @direct.symbol = Unicode::E103
     @membership.followers = Array.new
     @unfollowed.followers = Array.new
 
@@ -74,9 +77,9 @@ class TwiProwl
     begin
       @pdb = PStore.new( pdbfile, true )
     rescue
-      @pdb = PStore.new( pdbfile )
+      @pdb = PStore.new( pdbfile ) # ruby 1,8, but it's not thread safe
     end
-    process_xauth( @user )
+    process_oauth( @user )
     rate_limit_status( true )
     @shutdown = false
     pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
@@ -84,11 +87,11 @@ class TwiProwl
       @pdb[:idnames] = Hash.new unless @pdb.root?( :idnames )
     end
     File.chmod( 0600, pdbfile )
+    @notify = config.key?('NotifyMethods') ? config['NotifyMethods'] : [ "prowl" ]
   end
 
   @@conf = Hash.new
   @@logger = nil
-  @@prowl_conf = nil
 
   private
   def load_config( config, items )
@@ -110,7 +113,7 @@ class TwiProwl
     end
   end
 
-  def process_xauth( user )
+  def process_oauth( user )
 
     access_token = nil
     access_token_secret = nil
@@ -124,7 +127,7 @@ class TwiProwl
 
     params = {
      :site => ACCESS_SITE,
-     :proxy => @use_proxy ? @@prowl_conf["ProxyURI"] : nil
+     :proxy => @use_proxy ? @@conf["ProxyURI"] : nil
     }
 
     @consumer = OAuth::Consumer.new( CONSUMER_KEY, CONSUMER_SECRET, params )
@@ -147,7 +150,7 @@ class TwiProwl
       `stty #{revertstty}` rescue nil
       begin
         print "** Processing OAuth authorization for #{user}..."
-        @access_token = get_access_token(user, pass)
+        @access_token = get_access_token( user, pass )
         print " done.\n"
         @pdb.transaction do
           @pdb[ :tokens ] = Hash.new unless @pdb.root?( :tokens )
@@ -165,13 +168,18 @@ class TwiProwl
                                @access_token.secret )
   end
 
-  def get_access_token(user, pass)
+  def http_new( uri )
+    http = Net::HTTP.new( uri.host, uri.port)
+    http.use_ssl = true
+    http
+  end
+
+  def get_access_token( user, pass )
     rt = @consumer.get_request_token
     u = URI::parse rt.authorize_url
-    http =  Net::HTTP.new( u.host, u.port )
-    http.use_ssl = true
-    req = Net::HTTP::Post.new(u.request_uri)
-    res = http.request(req)
+    http = http.new( u )
+    req = Net::HTTP::Post.new( u.request_uri )
+    res = http.request( req )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
     at = ot = nil
     res.body.split(/\n/).each do |line|
@@ -190,9 +198,7 @@ class TwiProwl
               "session[password]=#{pass}",
               "submit=Allow" ].join("&")
     u = URI::parse( "https://api.twitter.com/oauth/authorize" )
-    http = Net::HTTP.new( u.host, u.port)
-    http.use_ssl = true
-    res = http.post(u.request_uri, query)
+    res = http.post( u.request_uri, query )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
     pin = nil
     lines = res.body.split(/\n/)
@@ -204,7 +210,6 @@ class TwiProwl
       end
       i+=1;
     end
-    puts "PIN: #{pin}"
     raise RuntimeError, "Could not get tokens" unless pin
     if pin
       token = rt.get_access_token( :oauth_verifier => pin )
@@ -238,23 +243,6 @@ class TwiProwl
         "&#{match};"
       end
     end unless text.nil? || text.empty?
-  end
-
-  def _prowl_conf_validate(val)
-    return if @@prowl_conf
-    @@prowl_conf = val
-    unless @@prowl_conf.kind_of?( Hash )
-      STDERR.printf "Configuration Error: Prowl section must be Hash.\n"
-      exit 1
-    end
-    unless @@prowl_conf.has_key?( 'APIKey' )
-      STDERR.printf "Configuration Error: APIKey must be given.\n"
-      exit 1
-    end
-    if @@prowl_conf.has_key?( 'ProxyURL' )
-       @@prowl_conf['ProxyURI'] = URI::parse( @@prowl_conf['ProxyURL'] )
-    end
-    _init_logger()
   end
 
   def _init_logger
@@ -299,8 +287,8 @@ class TwiProwl
   end
 
   def http_new( uri, use_proxy = true )
-    if @@prowl_conf['ProxyURI'] and use_proxy
-      pu = @@prowl_conf['ProxyURI']
+    if @@conf['ProxyURI'] and use_proxy
+      pu = @@conf['ProxyURI']
       http = Net::HTTP::Proxy( pu.host, pu.port, pu.user, pu.password ).new( uri.host, uri.port )
     else
       http = Net::HTTP.new( uri.host, uri.port )
@@ -309,19 +297,38 @@ class TwiProwl
       http.use_ssl = true
       http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     end
+    http.ca_file = @@conf['CAPath'] if @@conf['CAPath']
     return http
   end
 
-  def prowl( params={} )
+  def prowl( icon, params={} )
+    params[:apikey] = @@conf['Prowl']['APIKey']
+    params[:description] = "#{icon} #{params[:description]}"
     begin
-      info "Prowling..."
+      info "Notify with Prowl..."
       uri = URI::parse( PROWL_API_ADD )
-      http = http_new( uri )
+      http = http_new( uri  )
       request = Net::HTTP::Post.new( uri.request_uri )
       request.content_type = "application/x-www-form-urlencoded"
       query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
       res = http.request( request, query.join( '&' ) )
       debug "Prowl Response: #{res.code}"
+    rescue
+      error "Error while Prowling: #{$!}"
+    end
+  end
+
+  def nma( icon, params = {} )
+    params[:apikey] = @@conf['NMA']['APIKey']
+    begin
+      info "Notify with NMA..."
+      uri = URI::parse( NMA_API_NOTIFY )
+      http = http_new( uri  )
+      request = Net::HTTP::Post.new( uri.request_uri )
+      request.content_type = "application/x-www-form-urlencoded"
+      query = params.map do |key, val| "#{key}=#{post_escape(val.to_s)}" end
+      res = http.request( request, query.join( '&' ) )
+      debug "NMA Response: #{res.code}"
     rescue
       error "Error while Prowling: #{$!}"
     end
@@ -426,12 +433,14 @@ class TwiProwl
         end
         desc = string + (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
 
-        prowl( :apikey => @@prowl_conf['APIKey'],
+        @notify.each do |n|
+          send( n, Unicode::E023,
                :application=> @application,
                :event => "Unfollowed",
-               :description => "#{Unicode::E023} #{desc}",
+               :description => desc,
                :priority => checkinfo.priority
                )
+        end
       end
     end
     checkinfo.followers = users
@@ -466,12 +475,14 @@ class TwiProwl
       return if @retweets.ignore and source == @user
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
-      info "Prowling: %s %s" % [ event, desc ]
-      prowl( :apikey => @@prowl_conf['APIKey'],
+      info "Notify: %s %s" % [ event, desc ]
+      @notify.each do |n|
+        send( n, Unicode::E00F,
              :application=> @application,
              :event => event,
-             :description => "#{Unicode::E00F} #{desc}",
+             :description => desc,
              :priority => @retweets.priority ) if @retweets.enable
+      end
       return
     end
 
@@ -481,12 +492,14 @@ class TwiProwl
       return if @mentions.ignore and source == @user
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
-      info "Prowling: %s %s" % [ event, desc ]
-      prowl( :apikey => @@prowl_conf['APIKey'],
+      info "Notify: %s %s" % [ event, desc ]
+      @notify.each do |n|
+        send( n, Unicode::E10F,
              :application=> @application,
              :event => event,
-             :description => "#{Unicode::E10F} #{desc}",
+             :description => desc,
              :priority => @mentions.priority ) if @mentions.enable
+      end
       return
     end
 
@@ -495,12 +508,14 @@ class TwiProwl
       (!@direct.ignore or message['sender_screen_name'] != @user)
       desc = unescape( message['text'] )
       event = "DM from @#{message['sender_screen_name']}"
-      info "Prowling: %s %s" % [ event, desc ]
-      prowl( :apikey => @@prowl_conf['APIKey'],
-             :application=> @application,
+      info "Notify: %s %s" % [ event, desc ]
+      @notify.each do |n|
+        send( n, Unicode::E103,
+             :application => @application,
              :event => event,
-             :description => "#{Unicode::E103} #{desc}",
+             :description => desc,
              :priority => @direct.priority ) if @direct.enable
+      end
       return
     end
 
@@ -517,12 +532,14 @@ class TwiProwl
         u = Regexp.new( screen_name, 'i')
         t = Regexp.new( body_text )
         if u =~ sname and t =~ desc
-          info "Prowling: RegexpMatch"
-          prowl( :apikey => @@prowl_conf['APIKey'],
+          info "Notify: RegexpMatch"
+          @notify.each do |n|
+            send( n, Unicode::E317,
              :application=> @application,
              :event => "@#{source} says",
-             :description => "#{Unicode::E317} #{desc}",
+             :description => desc,
              :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 )
+          end
           return
         end
       end
@@ -534,22 +551,26 @@ class TwiProwl
       if json['target']['screen_name'] == @user and @membership.enable and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been added into: #{json['target_object']['full_name']}" 
-        prowl( :apikey => @@prowl_conf['APIKey'],
+        @notify.each do |n|
+          send( n, Unicode::E337,
                :application=> @application,
                :event => "List membership",
-               :description => "#{Unicode::E337} #{desc}",
+               :description => desc,
                :priority => @membership.priority )
+        end
       end
     when "list_member_removed"
       if json['target']['screen_name'] == @user and
         @membership.enable and !@membership.negative and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been removed from: #{json['target_object']['full_name']}" 
-        prowl( :apikey => @@prowl_conf['APIKey'],
+        @notify.each do |n|
+          send( n, Unicode::E333,
                :application=> @application,
                :event => "List membership",
-               :description => "#{Unicode::E333} #{desc}",
+               :description => desc,
                :priority => @membership.priority ) 
+        end
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
@@ -557,12 +578,14 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
-        info "Prowling: favorite %s" % [ desc ]
-        prowl( :apikey => @@prowl_conf['APIKey'],
+        info "Notify: favorite %s" % [ desc ]
+        @notify.each do |n|
+          send( n, Unicode::E32F,
                :application=> @application,
                :event => "Favorite by @#{source}",
-               :description => "#{Unicode::E32F} #{desc}",
+               :description => desc,
                :priority => @favorite.priority )
+        end
       end
     when "unfavorite"
       target = json['target_object']['user']['screen_name']
@@ -571,12 +594,14 @@ class TwiProwl
         (!@favorite.ignore or source != @user)
         text = json['target_object']['text']
         desc = unescape( text )
-        info "Prowling: unfavorite %s" % [ desc ]
-        prowl( :apikey => @@prowl_conf['APIKey'],
+        info "Notify: unfavorite %s" % [ desc ]
+        @notify.each do |n|
+           send( n, Unicode::E421,
                :application=> @application,
                :event => "Unfavorite by @#{source}",
-               :description => "#{Unicode::E421} #{desc}",
+               :description => desc,
                :priority => @favorite.priority )
+        end
       end
     when "follow"
       if json['target']['screen_name'] == @user
