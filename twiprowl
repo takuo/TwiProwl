@@ -168,12 +168,6 @@ class TwiProwl
                                @access_token.secret )
   end
 
-  def http_new( uri )
-    http = Net::HTTP.new( uri.host, uri.port)
-    http.use_ssl = true
-    http
-  end
-
   def get_access_token( user, pass )
     rt = @consumer.get_request_token
     u = URI::parse rt.authorize_url
