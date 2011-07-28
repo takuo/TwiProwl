@@ -21,7 +21,7 @@ require 'pstore'
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "2.0.0"
+TWIPROWL_VERSION = "2.0.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 LOGFILE = "twiprowl.log"
@@ -278,6 +278,14 @@ class TwiProwl
     return http
   end
 
+  def notify( icon, params = {} )
+     @notify.each do |m|
+       Thread.new do
+           send( m, icon, params.dup ) 
+       end
+     end
+  end
+
   def prowl( icon, params={} )
     params[:apikey] = @@conf['Prowl']['APIKey']
     params[:description] = "#{icon} #{params[:description]}"
@@ -410,14 +418,12 @@ class TwiProwl
         end
         desc = string + (diff.size > 1 ? " have" : " has" ) + " unfollowed you..."
 
-        @notify.each do |n|
-          send( n, Unicode::E023,
+        notify( Unicode::E023,
                :application=> @application,
                :event => "Unfollowed",
                :description => desc,
                :priority => checkinfo.priority
                )
-        end
       end
     end
     checkinfo.followers = users
@@ -453,13 +459,11 @@ class TwiProwl
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
       info "Notify: %s %s" % [ event, desc ]
-      @notify.each do |n|
-        send( n, Unicode::E00F,
+      notify( Unicode::E00F,
              :application=> @application,
              :event => event,
              :description => desc,
              :priority => @retweets.priority ) if @retweets.enable
-      end
       return
     end
 
@@ -470,13 +474,11 @@ class TwiProwl
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
       info "Notify: %s %s" % [ event, desc ]
-      @notify.each do |n|
-        send( n, Unicode::E10F,
+      notify( Unicode::E10F,
              :application=> @application,
              :event => event,
              :description => desc,
              :priority => @mentions.priority ) if @mentions.enable
-      end
       return
     end
 
@@ -486,13 +488,11 @@ class TwiProwl
       desc = unescape( message['text'] )
       event = "DM from @#{message['sender_screen_name']}"
       info "Notify: %s %s" % [ event, desc ]
-      @notify.each do |n|
-        send( n, Unicode::E103,
+      notify( Unicode::E103,
              :application => @application,
              :event => event,
              :description => desc,
              :priority => @direct.priority ) if @direct.enable
-      end
       return
     end
 
@@ -528,26 +528,22 @@ class TwiProwl
       if json['target']['screen_name'] == @user and @membership.enable and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been added into: #{json['target_object']['full_name']}" 
-        @notify.each do |n|
-          send( n, Unicode::E337,
+        notify( Unicode::E337,
                :application=> @application,
                :event => "List membership",
                :description => desc,
                :priority => @membership.priority )
-        end
       end
     when "list_member_removed"
       if json['target']['screen_name'] == @user and
         @membership.enable and !@membership.negative and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been removed from: #{json['target_object']['full_name']}" 
-        @notify.each do |n|
-          send( n, Unicode::E333,
+        notify( Unicode::E333,
                :application=> @application,
                :event => "List membership",
                :description => desc,
                :priority => @membership.priority ) 
-        end
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
@@ -556,13 +552,11 @@ class TwiProwl
         text = json['target_object']['text']
         desc = unescape( text )
         info "Notify: favorite %s" % [ desc ]
-        @notify.each do |n|
-          send( n, Unicode::E32F,
+        notify( Unicode::E32F,
                :application=> @application,
                :event => "Favorite by @#{source}",
                :description => desc,
                :priority => @favorite.priority )
-        end
       end
     when "unfavorite"
       target = json['target_object']['user']['screen_name']
@@ -572,13 +566,11 @@ class TwiProwl
         text = json['target_object']['text']
         desc = unescape( text )
         info "Notify: unfavorite %s" % [ desc ]
-        @notify.each do |n|
-           send( n, Unicode::E421,
+        notify( Unicode::E421,
                :application=> @application,
                :event => "Unfavorite by @#{source}",
                :description => desc,
                :priority => @favorite.priority )
-        end
       end
     when "follow"
       if json['target']['screen_name'] == @user
