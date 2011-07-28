@@ -1,37 +1,44 @@
 LogDir: /tmp
 Debug: false
 Daemon: true
+# ProxyURI:
+# CAPath:
 
 Prowl:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-# ProxyURL:
+
+NMA:
+ APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Accounts:
  -
   Application: "Twitter"
+  NotifyMethods:
+    - "prwol" # Prowl for iPhone
+#    - "nma"  # Notify My Android for Android
   User: example_username
   RateLimitThreshold: 20
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
     Enable: true
     Priority: 1
-    IgnoreSelf: true       # Ignore mention by myself
+    IgnoreSelf: false      # Ignore mention by myself
   Direct:                  # Event on Direct Messages
     Enable: true
     Priority: 0
-    IgnoreSelf: true       # Ignore DM event from myself
+    IgnoreSelf: false      # Ignore DM event from myself
   Retweets:                # Event on Retweets
     Enable: true
     Priority: 0
   Membership:              # Event on List Membership
     Enable: true
     Priority: 0
-    IgnoreSelf: true       # Ignore event by myself
+    IgnoreSelf: false      # Ignore event by myself
     IgnoreNegative: false  # Ignore remove event
   Favorite:                # Event on Favorite/Unfavorite
     Enable: true
     Priority: 0
-    IgnoreSelf: true       # Ignore event by myself
+    IgnoreSelf: false      # Ignore event by myself
     IgnoreNegative: false  # Ignore Unfavorite event
   Unfollowed:              # Event on Unfollowed, requiresi API rate
     Enable: true
