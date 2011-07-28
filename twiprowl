@@ -24,9 +24,10 @@ require 'compat'
 TWIPROWL_VERSION = "2.0.0"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
+LOGFILE = "twiprowl.log"
+
 class TwiProwl
   API_BASE = "https://api.twitter.com/1/"
-  LOGFILE = "twiprowl.log"
 
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   NMA_API_NOTIFY = "https://www.notifymyandroid.com/publicapi/notify"
@@ -47,10 +48,10 @@ class TwiProwl
 
   attr_accessor :thread, :stream_thread
 
-  def initialize( global, config )
+  def initialize( global, config, logger )
     @@conf = global
     @@conf['ProxyURI'] = URI::parse( @@conf['ProxyURI'] ) if @@conf['ProxyURI']
-    _init_logger
+    @logger = logger
     @application = config.key?( 'Application' ) ? config['Application'] : "Twitter"
     load_config( config, [ # name, interval( sec )
       @mentions = CheckInfo.new( "Mentions" ),
@@ -91,7 +92,6 @@ class TwiProwl
   end
 
   @@conf = Hash.new
-  @@logger = nil
 
   private
   def load_config( config, items )
@@ -171,7 +171,7 @@ class TwiProwl
   def get_access_token( user, pass )
     rt = @consumer.get_request_token
     u = URI::parse rt.authorize_url
-    http = http.new( u )
+    http = http_new( u )
     req = Net::HTTP::Post.new( u.request_uri )
     res = http.request( req )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
@@ -239,24 +239,10 @@ class TwiProwl
     end unless text.nil? || text.empty?
   end
 
-  def _init_logger
-    if @@conf['LogDir']
-      logdir = @@conf['LogDir']
-      Dir.mkdir( logdir ) unless File.exist?( logdir )
-      file = File.join( logdir, LOGFILE )
-      STDOUT.print "All logs will be written into #{file}.\n"
-      @@logger = Logger.new( file, 'daily' )
-      @@logger.level = @@conf['Debug'] ? Logger::DEBUG : Logger::INFO
-      @@logger.datetime_format = "%Y-%m-%d %H:%M:%S"
-    else
-      @@logger = nil
-    end
-  end
-
   # logging
   def _log( severity, str )
-    if @@logger
-      @@logger.add( severity, str, "#{@application}@#{@user}" )
+    if @logger
+      @logger.add( severity, str, "#{@application}@#{@user}" )
     else
       format = "[%Y-%m-%d %H:%M:%S##{Process.pid}]" 
       if severity == Logger::ERROR
@@ -727,10 +713,21 @@ end
 STDOUT.print "LoadConf: #{filename}\n" 
 config = YAML.load_file( filename )
 config["Debug"] = true if ProgramConfig[:debug]
+if config['LogDir']
+  logdir = config['LogDir']
+  Dir.mkdir( logdir ) unless File.exist?( logdir )
+  file = File.join( logdir, LOGFILE )
+  STDOUT.print "All logs will be written into #{file}.\n"
+  logger = Logger.new( file, 'daily' )
+  logger.level = config['Debug'] ? Logger::DEBUG : Logger::INFO
+  logger.datetime_format = "%Y-%m-%d %H:%M:%S"
+else
+  logger = nil
+end
 
 accounts = Array.new
 config['Accounts'].each do |account|
-  accounts.push( TwiProwl.new( config, account ) )
+  accounts.push( TwiProwl.new( config, account, logger ) )
 end
 
 ## Daemon mode
