@@ -1,3 +1,18 @@
+2011-07-28  Takuo Kitame  <kitame@debian.org>
+
+	* 2.0.0
+	* Multi Notify methods support
+	* ProxyURI is now global config.
+	* Add config value (global) 'CAPath' to specify ca file ( HTTP::ca_filei ).
+	* Add Notify method 'prowl', 'nma'
+	* Add config value 'NotifyMethod' (Array). default: [ 'prowl' ].
+	* Add config value 'NMA' (Hash), It should contain 'APIKey' for Notify My Android's APIKey.
+
+2011-07-27  Takuo Kitame  <kitame@debian.org>
+
+	* 1.6.9
+	* use OAuth instead of XAuth to get DM permissions.
+
 2011-06-09  Takuo Kitame  <kitame@debian.org>
 
 	* 1.6.0

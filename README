@@ -1,6 +1,6 @@
 = Instruction =
 
-Version : 1.6.0
+Version : 2.0.0
 
 1. install some ruby libraries
 
@@ -31,14 +31,21 @@ Version : 1.6.0
 LogDir: /tmp               # Log Directory
 Debug: false               # Debugging ouput to log.
 Daemon: true               # Daemon mode.
+ProxyURI:                  # URI for http proxy.
 
 Prowl:
  APIKey: xxxxxxxxxxxxxxxx  # the Prowl API Key
-# ProxyURL: http://user:pass@host:port/ 
+
+NMA:
+ APIKey: xxxxxxxxxxxxxxxx  # the NMA's API Key
+
 
 Accounts:
  -
   Application: <application name (optional)> 
+  NotifyMethods:           # notify methods you want to use.
+   - prowl
+   - nma
   User: <Twitter username>
   RateLimitThreshold: 20   # polling limitter for basic API
   UseProxy: false          # <= use Prowl::ProxyURL
