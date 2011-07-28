@@ -176,7 +176,7 @@ class TwiProwl
     res = http.request( req )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
     at = ot = nil
-    res.body.split(/\n/).each do |line|
+    res.body.each_line do |line|
       if /name="authenticity_token" type="hidden" value="([^"]+)"/ =~ line
         at = $1
       end
@@ -195,14 +195,11 @@ class TwiProwl
     res = http.post( u.request_uri, query )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
     pin = nil
-    lines = res.body.split(/\n/)
-    i = 0
-    while i < lines.size
-      if lines[i] =~ /<code>(\d+)/
+    res.body.each_line do |line|
+      if line =~ /<code>(\d+)/
         pin = $1
         break
       end
-      i+=1;
     end
     raise RuntimeError, "Could not get tokens" unless pin
     if pin
