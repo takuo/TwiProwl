@@ -277,7 +277,7 @@ class TwiProwl
       http.use_ssl = true
       http.verify_mode = OpenSSL::SSL::VERIFY_NONE
     end
-    http.ca_file = @@conf['CAPath'] if @@conf['CAPath']
+    http.ca_path = @@conf['CAPath'] if @@conf['CAPath']
     return http
   end
 
