@@ -585,6 +585,7 @@ class TwiProwl
     else
       debug "Event: #{event}" unless event.nil? || event.empty?
     end
+    return
   end
 
   def stream_monitor
@@ -594,6 +595,7 @@ class TwiProwl
     request = Net::HTTP::Post.new( uri.request_uri )
     request.set_form_data( { "replies" => "all" } ) if @replies_all
     request.oauth!( http, @consumer, @token )
+    @stream_error_count = 0
     begin
       buf = ''
       http.request( request ) do |res|
