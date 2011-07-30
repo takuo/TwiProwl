@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 1.1
+# Version: 2.0.0
 #
 # Copyright (c) 2009,2010,2011 Takuo Kitame.
 #
@@ -274,8 +274,8 @@ class TwiProwl
     end
     if uri.scheme == "https"
       http.use_ssl = true
-      # http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      # http.verify_mode = OpenSSL::SSL::VERIFY_PEER
       http.ca_path = @@conf['CAPath'] if @@conf['CAPath']
       http.ca_file = @@conf['CAFile'] if @@conf['CAFile']
     end
@@ -514,13 +514,11 @@ class TwiProwl
         t = Regexp.new( body_text )
         if u =~ sname and t =~ desc
           info "Notify: RegexpMatch"
-          @notify.each do |n|
-            send( n, Unicode::E317,
+          notify( Unicode::E317,
              :application=> @application,
              :event => "@#{source} says",
              :description => desc,
              :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 )
-          end
           return
         end
       end
@@ -587,6 +585,7 @@ class TwiProwl
     else
       debug "Event: #{event}" unless event.nil? || event.empty?
     end
+    return
   end
 
   def stream_monitor
@@ -596,11 +595,11 @@ class TwiProwl
     request = Net::HTTP::Post.new( uri.request_uri )
     request.set_form_data( { "replies" => "all" } ) if @replies_all
     request.oauth!( http, @consumer, @token )
+    @stream_error_count = 0
     begin
       buf = ''
       http.request( request ) do |res|
-        raise RuntimeError, "Error on HTTP HTTP:#{res.code} #{res.to_s}" if res.
-code.to_i != 200
+        raise RuntimeError, "Error on HTTP HTTP:#{res.code} #{res.to_s}" if res.code.to_i != 200
         res.read_body do |str|
           buf << str
           @stream_error_count = 0

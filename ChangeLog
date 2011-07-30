@@ -1,3 +1,10 @@
+2011-07-29  Takuo Kitame  <kitame@debian.org>
+
+	* 2.0.1
+	* fix unnotified issue
+	* threaded notify method
+	* won't check SSL cert (at once)
+
 2011-07-28  Takuo Kitame  <kitame@debian.org>
 
 	* 2.0.0
