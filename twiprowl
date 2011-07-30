@@ -597,8 +597,7 @@ class TwiProwl
     begin
       buf = ''
       http.request( request ) do |res|
-        raise RuntimeError, "Error on HTTP HTTP:#{res.code} #{res.to_s}" if res.
-code.to_i != 200
+        raise RuntimeError, "Error on HTTP HTTP:#{res.code} #{res.to_s}" if res.code.to_i != 200
         res.read_body do |str|
           buf << str
           @stream_error_count = 0
