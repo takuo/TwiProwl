@@ -2,7 +2,8 @@ LogDir: /tmp
 Debug: false
 Daemon: true
 # ProxyURI:
-# CAPath:
+# CAPath: /etc/ssl/certs                              # for Debian
+# CAFile: /opt/local/share/curl/curl-ca-bundle.crt    # for MacPorts
 
 Prowl:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
