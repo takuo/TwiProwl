@@ -348,6 +348,7 @@ class TwiProwl
                                                  res['X-RateLimit-Limit'],
                                                  Time.at(res['X-RateLimit-Reset'].to_i).strftime( "%Y-%m-%d %H:%M:%S" )
                                                 ]
+       @rate = res['X-RateLimit-Remaining'].to_i if auth
       end
     rescue
       error "HTTP Get Error: #{$!}"
