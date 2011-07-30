@@ -694,10 +694,6 @@ if File.exist?( PIDFILE )
   puts "kill #{pid} at first or remove pidfile: `rm #{PIDFILE}'"
   exit
 end
-File.open( PIDFILE, "w" ) do |fp|
-  fp.write Process.pid
-end
-
 
 ## config file
 config_order = [
@@ -713,7 +709,6 @@ if ProgramConfig[:config]
     filename = ProgramConfig[:config]
   else
     STDERR.print "Configuration file does not exist: #{ProgramConfig[:config]}\n"
-    File.unlink( PIDFILE )
     exit 1
   end
 else
@@ -729,7 +724,6 @@ if filename.nil?
   STDERR.print "File candidates are:\n"
   STDERR.print config_order.join("\n")
   STDERR.print "\n"
-  File.unlink( PIDFILE )
   exit 1
 end
 
@@ -759,7 +753,6 @@ if ProgramConfig[:daemon] || config['Daemon']
     Process.daemon( true, true )
   rescue
     STDERR.print $!
-    File.unlink( PIDFILE )
     exit 1
   end
   STDOUT.print "Daemonized. PID=#{Process.pid}\n"
@@ -777,6 +770,10 @@ Signal.trap(:TERM) {
 }
 
 print "TwiProwl is running.\n"
+
+File.open( PIDFILE, "w" ) do |fp|
+  fp.write Process.pid
+end
 
 # main loop thread
 loop do
