@@ -171,7 +171,7 @@ class TwiProwl
   def get_access_token( user, pass )
     rt = @consumer.get_request_token
     u = URI::parse rt.authorize_url
-    http = http_new( u )
+    http = http_new( u, @use_proxy )
     req = Net::HTTP::Post.new( u.request_uri )
     res = http.request( req )
     raise RuntimeError, "HTTP: #{res.code}" if res.code != "200"
@@ -272,9 +272,9 @@ class TwiProwl
     end
     if uri.scheme == "https"
       http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      # http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      http.ca_path = @@conf['CAPath'] if @@conf['CAPath']
     end
-    http.ca_path = @@conf['CAPath'] if @@conf['CAPath']
     return http
   end
 
