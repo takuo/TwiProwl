@@ -512,13 +512,11 @@ class TwiProwl
         t = Regexp.new( body_text )
         if u =~ sname and t =~ desc
           info "Notify: RegexpMatch"
-          @notify.each do |n|
-            send( n, Unicode::E317,
+          notify( Unicode::E317,
              :application=> @application,
              :event => "@#{source} says",
              :description => desc,
              :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 )
-          end
           return
         end
       end
