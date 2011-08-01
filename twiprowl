@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # TwiProwl - Twitter Notification Script with Prowl.
-# Version: 2.0.0
+# Version: 2.0
 #
 # Copyright (c) 2009,2010,2011 Takuo Kitame.
 #
@@ -118,11 +118,12 @@ class TwiProwl
 
     access_token = nil
     access_token_secret = nil
-
-    @pdb.transaction do
-      if @pdb.root?( :tokens ) and @pdb[ :tokens ][ user ]
-        access_token = @pdb[ :tokens ][ user ][ :access_token ]
-        access_token_secret = @pdb[ :tokens ][ user ][ :access_token_secret ]
+    unless @@conf[:auth]
+      @pdb.transaction do
+        if @pdb.root?( :tokens ) and @pdb[ :tokens ][ user ]
+          access_token = @pdb[ :tokens ][ user ][ :access_token ]
+          access_token_secret = @pdb[ :tokens ][ user ][ :access_token_secret ]
+        end
       end
     end
 
@@ -160,9 +161,10 @@ class TwiProwl
             :access_token_secret => @access_token.secret
           }
         end
-      rescue OAuth::Unauthorized
-        print "Failed to OAuth due to wrong password or the server error.\n"
-        File.unlink( PIDFILE )
+      rescue
+        print "\n\nError: Failed to OAuth due to wrong password or the server error.\n"
+        print "ErrorMessage: #{$!}\n"
+        File.unlink( PIDFILE ) rescue
         exit 1
       end
     end
@@ -203,7 +205,7 @@ class TwiProwl
         break
       end
     end
-    raise RuntimeError, "Could not get tokens" unless pin
+    raise RuntimeError, "Could not get PIN" unless pin
     if pin
       token = rt.get_access_token( :oauth_verifier => pin )
     end
@@ -664,9 +666,10 @@ end
 ProgramConfig = Hash.new
 opts = OptionParser.new
 opts.on( "-c", "--config FILENAME", String, "Specify the config file." ) { |v| ProgramConfig[:config] = v }
-opts.on( "-q", "--daemon",nil, "Enable daemon mode.") { |v| ProgramConfig[:daemon] = true }
+opts.on( "-q", "--daemon",nil, "Enable daemon mode." ) { |v| ProgramConfig[:daemon] = true }
 opts.on( "-d", "--debug", nil, "Enable debug output." ) { |v| ProgramConfig[:debug] = true }
-opts.on( "-q", "--quit", nil, "Kill running process") { |v| ProgramConfig[:quit] = true }
+opts.on( "-q", "--quit", nil, "Kill running process" ) { |v| ProgramConfig[:quit] = true }
+opts.on( "-a", "--auth", nil, "force (re)Auth" ) { |v| ProgramConfig[:auth] = true }
 opts.version = TWIPROWL_VERSION
 opts.program_name = "twiprowl"
 opts.parse!( ARGV )
@@ -729,7 +732,8 @@ end
 
 STDOUT.print "LoadConf: #{filename}\n" 
 config = YAML.load_file( filename )
-config["Debug"] = true if ProgramConfig[:debug]
+config['Debug'] = true if ProgramConfig[:debug]
+config[:auth] = true if ProgramConfig[:auth]
 if config['LogDir']
   logdir = config['LogDir']
   Dir.mkdir( logdir ) unless File.exist?( logdir )
