@@ -690,7 +690,7 @@ if File.exist?( PIDFILE )
   open( PIDFILE ) do |fp|
     pid = fp.readline()
   end
-  puts "Another process is iseems running on #{pid}"
+  puts "Another process is seems running on #{pid}"
   puts "kill #{pid} at first or remove pidfile: `rm #{PIDFILE}'"
   exit
 end
