@@ -528,6 +528,15 @@ class TwiProwl
 
     # Membership event
     case event
+    when "follow"
+      if source != @user && @unfollowed.enable
+        desc = "You have been followed by #{source}"
+        notify( Unicode::E022,
+              :application=> @application,
+              :event => "Followed",
+              :description => desc,
+              :priority => @unfollowed.priority )
+      end
     when "list_member_added"
       if json['target']['screen_name'] == @user and @membership.enable and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
