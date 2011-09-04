@@ -297,10 +297,7 @@ class TwiProwl
 
   def growl( icon, params={} )
     begin
-    message = "%s\n%s" % [ params[:event], params[:description]]
-
-    debug message
-    Growl.notify( params[:description], :title => params[:event] )
+      Growl.notify( params[:description], :title => params[:event] )
     rescue
       debug $!.to_s
     end
