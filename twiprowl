@@ -17,6 +17,10 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
+begin
+ require 'growl'
+rescue LoadError
+end
 
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
@@ -289,6 +293,18 @@ class TwiProwl
            send( m, icon, params.dup ) 
        end
      end
+  end
+
+  def growl( icon, params={} )
+    begin
+    message = "%s\n%s" % [ params[:event], params[:description]]
+
+    debug message
+    Growl.notify( params[:description], :title => params[:event] )
+    rescue
+      debug $!.to_s
+    end
+    nil
   end
 
   def prowl( icon, params={} )
