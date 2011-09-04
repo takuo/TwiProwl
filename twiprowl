@@ -17,6 +17,11 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
+begin
+ require 'growl'
+ require 'fileutils'
+rescue LoadError
+end
 
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
@@ -48,6 +53,8 @@ class TwiProwl
                           :followers, :ignore, :negative, :thread, :time )
 
   attr_accessor :thread, :stream_thread
+
+  @@mutex = Mutex.new
 
   def initialize( global, config, logger )
     @@conf = global
@@ -84,9 +91,10 @@ class TwiProwl
     process_oauth( @user )
     rate_limit_status( true )
     @shutdown = false
-    pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
-    @pdb.transaction do
-      @pdb[:idnames] = Hash.new unless @pdb.root?( :idnames )
+    @@mutex.synchronize do
+      @pdb.transaction do
+        @pdb[:idnames] = Hash.new unless @pdb.root?( :idnames )
+      end
     end
     File.chmod( 0600, pdbfile )
     @notify = config.key?('NotifyMethods') ? config['NotifyMethods'] : [ "prowl" ]
@@ -119,14 +127,15 @@ class TwiProwl
     access_token = nil
     access_token_secret = nil
     unless @@conf[:auth]
-      @pdb.transaction do
-        if @pdb.root?( :tokens ) and @pdb[ :tokens ][ user ]
-          access_token = @pdb[ :tokens ][ user ][ :access_token ]
-          access_token_secret = @pdb[ :tokens ][ user ][ :access_token_secret ]
+      @@mutex.synchronize do
+        @pdb.transaction do
+          if @pdb.root?( :tokens ) and @pdb[ :tokens ][ user ]
+            access_token = @pdb[ :tokens ][ user ][ :access_token ]
+            access_token_secret = @pdb[ :tokens ][ user ][ :access_token_secret ]
+          end
         end
       end
     end
-
     params = {
      :site => ACCESS_SITE,
      :proxy => @use_proxy ? @@conf["ProxyURI"] : nil
@@ -154,12 +163,14 @@ class TwiProwl
         print "** Processing OAuth authorization for #{user}..."
         @access_token = get_access_token( user, pass )
         print " done.\n"
-        @pdb.transaction do
-          @pdb[ :tokens ] = Hash.new unless @pdb.root?( :tokens )
-          @pdb[ :tokens ][ user ] = {
-            :access_token => @access_token.token,
-            :access_token_secret => @access_token.secret
-          }
+        @@mutex.synchronize do
+          @pdb.transaction do
+            @pdb[ :tokens ] = Hash.new unless @pdb.root?( :tokens )
+            @pdb[ :tokens ][ user ] = {
+              :access_token => @access_token.token,
+              :access_token_secret => @access_token.secret
+            }
+          end
         end
       rescue
         print "\n\nError: Failed to OAuth due to wrong password or the server error.\n"
@@ -283,15 +294,48 @@ class TwiProwl
     return http
   end
 
-  def notify( icon, params = {} )
+  def notify( icon, params = {}, source_user = nil )
      @notify.each do |m|
        Thread.new do
-           send( m, icon, params.dup ) 
+           send( m, icon, params.dup, source_user ? source_user.dup : nil )
        end
      end
   end
 
-  def prowl( icon, params={} )
+  def growl( icon, params={}, user = nil )
+    growl_params = {}
+    if @@conf['Growl'].key?( 'Sticky' ) and
+       params[:priority] >= @@conf['Growl'].key?( 'Sticky' )
+      growl_params[:sticky] = true
+    end
+    growl_params[:title] = params[:event]
+    growl_params[:priority] = params[:priority]
+    message = params[:description]
+    begin
+      file = nil
+      if user
+        url = URI::parse( user['profile_image_url'] )
+        file = File.join( ENV["HOME"] , ".twiprowl", url.path )
+        @@mutex.synchronize do
+          if not File.exist?( file )
+            FileUtils.mkdir_p( File.dirname( file ) )
+            http = Net::HTTP.new( url.host, url.port )
+            image = http.get( url.path )
+            if image.code == "200"
+              open( file, "wb+" ) do |fp| fp.write image.body end
+            end
+          end
+        end # synchronize
+      end
+      growl_params[:image] = file if file and File.exist?( file )
+      Growl.notify( message, growl_params )
+    rescue
+      debug $!.to_s
+    end
+    nil
+  end
+
+  def prowl( icon, params={}, user = nil )
     params[:apikey] = @@conf['Prowl']['APIKey']
     params[:description] = "#{icon} #{params[:description]}"
     begin
@@ -308,7 +352,7 @@ class TwiProwl
     end
   end
 
-  def nma( icon, params = {} )
+  def nma( icon, params = {}, user = nil )
     params[:apikey] = @@conf['NMA']['APIKey']
     begin
       info "Notify with NMA..."
@@ -369,9 +413,11 @@ class TwiProwl
       json['users'].each do |user|
         names[user["id_str"]] = user['screen_name']
       end
-    end    
-    @pdb.transaction do
-      @pdb[:idnames].update( names )
+    end
+    @@mutex.synchronize do
+      @pdb.transaction do
+        @pdb[:idnames].update( names )
+      end
     end
   end
 
@@ -395,8 +441,10 @@ class TwiProwl
       diff = checkinfo.followers - users
       if diff.size > 0
         userdb = nil
-        @pdb.transaction do
-          userdb = @pdb[:idnames]
+        @@mutex.synchronize do
+          @pdb.transaction do
+            userdb = @pdb[:idnames]
+          end
         end
         screen_names = Array.new
         rate = 150
@@ -443,17 +491,25 @@ class TwiProwl
     if json['user']
       source = json['user']['screen_name']
       sid = json['user']['id_str']
+      source_user = json['user']
     elsif json['source']
       source = json['source']['screen_name'] 
       sid = json['source']['id_str']
+      source_user = json['source']
+    elsif message
+      source_user = message['sender']
+      source = message['sender']['screen_name']
+      sid = message['sender']['id_str']
     else
       source = nil
     end
 
     if source and @unfollowed.followers.include?( sid )
-      @pdb.transaction do
-        @pdb[:idnames][sid] = source
-      end 
+      @@mutex.synchronize do
+        @pdb.transaction do
+          @pdb[:idnames][sid] = source
+        end
+      end
     end
 
     desc = retweets ? retweets['text'] : json['text']
@@ -465,11 +521,11 @@ class TwiProwl
       desc = unescape( retweets['text'] )
       event = "Retweeted by @#{source}" 
       info "Notify: %s %s" % [ event, desc ]
-      notify( Unicode::E00F,
+      notify( Unicode::E00F, {
              :application=> @application,
              :event => event,
              :description => desc,
-             :priority => @retweets.priority ) if @retweets.enable
+             :priority => @retweets.priority }, source_user ) if @retweets.enable
       return
     end
 
@@ -480,11 +536,11 @@ class TwiProwl
       desc = unescape( json['text'] )
       event = "Mentioned by @#{source}"
       info "Notify: %s %s" % [ event, desc ]
-      notify( Unicode::E10F,
+      notify( Unicode::E10F, {
              :application=> @application,
              :event => event,
              :description => desc,
-             :priority => @mentions.priority ) if @mentions.enable
+             :priority => @mentions.priority }, source_user ) if @mentions.enable
       return
     end
 
@@ -494,11 +550,11 @@ class TwiProwl
       desc = unescape( message['text'] )
       event = "DM from @#{message['sender_screen_name']}"
       info "Notify: %s %s" % [ event, desc ]
-      notify( Unicode::E103,
+      notify( Unicode::E103, {
              :application => @application,
              :event => event,
              :description => desc,
-             :priority => @direct.priority ) if @direct.enable
+             :priority => @direct.priority }, source_user ) if @direct.enable
       return
     end
 
@@ -516,11 +572,12 @@ class TwiProwl
         t = Regexp.new( body_text )
         if u =~ sname and t =~ desc
           info "Notify: RegexpMatch"
-          notify( Unicode::E317,
+          notify( Unicode::E317, {
              :application=> @application,
              :event => "@#{source} says",
              :description => desc,
-             :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 )
+             :priority => m.key?( 'Priority' ) ? m['Priority'] : 0 },
+             source_user )
           return
         end
       end
@@ -531,32 +588,34 @@ class TwiProwl
     when "follow"
       if source != @user && @unfollowed.enable
         desc = "You have been followed by #{source}"
-        notify( Unicode::E022,
+        notify( Unicode::E022, {
               :application=> @application,
               :event => "Followed",
               :description => desc,
-              :priority => @unfollowed.priority )
+              :priority => @unfollowed.priority }, source_user )
       end
     when "list_member_added"
       if json['target']['screen_name'] == @user and @membership.enable and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been added into: #{json['target_object']['full_name']}" 
-        notify( Unicode::E337,
+        notify( Unicode::E337, {
                :application=> @application,
                :event => "List membership",
                :description => desc,
-               :priority => @membership.priority )
+               :priority => @membership.priority },
+               json['target_object']['user'] )
       end
     when "list_member_removed"
       if json['target']['screen_name'] == @user and
         @membership.enable and !@membership.negative and
         (!@membership.ignore or json['target_object']['user']['screen_name'] != @user)
         desc = "You have been removed from: #{json['target_object']['full_name']}" 
-        notify( Unicode::E333,
+        notify( Unicode::E333, {
                :application=> @application,
                :event => "List membership",
                :description => desc,
-               :priority => @membership.priority ) 
+               :priority => @membership.priority },
+               json['target_object']['user'] )
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
@@ -565,11 +624,12 @@ class TwiProwl
         text = json['target_object']['text']
         desc = unescape( text )
         info "Notify: favorite %s" % [ desc ]
-        notify( Unicode::E32F,
+        notify( Unicode::E32F, {
                :application=> @application,
                :event => "Favorite by @#{source}",
                :description => desc,
-               :priority => @favorite.priority )
+               :priority => @favorite.priority },
+               source_user )
       end
     when "unfavorite"
       target = json['target_object']['user']['screen_name']
@@ -579,18 +639,21 @@ class TwiProwl
         text = json['target_object']['text']
         desc = unescape( text )
         info "Notify: unfavorite %s" % [ desc ]
-        notify( Unicode::E421,
+        notify( Unicode::E421, {
                :application=> @application,
                :event => "Unfavorite by @#{source}",
                :description => desc,
-               :priority => @favorite.priority )
+               :priority => @favorite.priority },
+               source_user )
       end
     when "follow"
       if json['target']['screen_name'] == @user
         # @unfollowed.followers.push( json['source']['id'] )
-        @pdb.transaction do
-          @pdb[:idnames][json['source']['id_str']] = json['source']['screen_name']
-          debug "Added idnames: #{json['source']['id_str']} = #{json['source']['screen_name']}"
+        @@mutex.synchronize do
+          @pdb.transaction do
+            @pdb[:idnames][json['source']['id_str']] = json['source']['screen_name']
+            debug "Added idnames: #{json['source']['id_str']} = #{json['source']['screen_name']}"
+          end
         end
       end
     else
