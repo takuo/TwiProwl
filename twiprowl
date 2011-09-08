@@ -493,6 +493,10 @@ class TwiProwl
       source = json['source']['screen_name'] 
       sid = json['source']['id_str']
       source_user = json['source']
+    elsif message
+      source_user = message['sender']
+      source = message['sender']['screen_name']
+      sid = message['sender']['id_str']
     else
       source = nil
     end
