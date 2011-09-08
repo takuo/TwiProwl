@@ -303,6 +303,11 @@ class TwiProwl
   end
 
   def growl( icon, params={}, user = nil )
+    growl_params = {}
+    growl_params[:sticky] = true if @@conf['Growl']['Sticky']
+    growl_params[:title] = params[:event]
+    growl_params[:priority] = params[:priority]
+    message = params[:description]
     begin
       file = nil
       if user
@@ -319,12 +324,8 @@ class TwiProwl
           end
         end # synchronize
       end
-      if file and File.exist?( file )
-        Growl.notify( params[:description], :title => params[:event],
-                                            :icon => file )
-      else
-        Growl.notify( params[:description], :title => params[:event] )
-      end
+      growl_params[:image] = file if file and File.exist?( file )
+      Growl.notify( message, growl_params )
     rescue
       debug $!.to_s
     end
