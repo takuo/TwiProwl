@@ -11,12 +11,16 @@ Prowl:
 NMA:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
+Growl:
+  Sticky: 0    # lowest priority to enable stikcy option
+
 Accounts:
  -
   Application: "Twitter"
   NotifyMethods:
     - "prowl" # Prowl for iPhone
-#    - "nma"  # Notify My Android for Android
+#   - "nma"   # Notify My Android for Android
+#   - "growl" # use growlnotify, it requires growl.gem and growlnotify
   User: example_username
   RateLimitThreshold: 20
   UseProxy: false          # <= use Prowl::ProxyURL
