@@ -26,7 +26,7 @@ end
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "2.0.2"
+TWIPROWL_VERSION = "2.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 PIDFILE = File.join( ENV['HOME'], ".twiprowl.pid" )
@@ -305,12 +305,13 @@ class TwiProwl
   def growl( icon, params={}, user = nil )
     growl_params = {}
     if @@conf['Growl'].key?( 'Sticky' ) and
-       params[:priority] >= @@conf['Growl'].key?( 'Sticky' )
+       params[:priority] >= @@conf['Growl']['Sticky']
       growl_params[:sticky] = true
     end
     growl_params[:title] = params[:event]
     growl_params[:priority] = params[:priority]
     message = params[:description]
+    info "Notify with Growl..."
     begin
       file = nil
       if user
@@ -330,7 +331,7 @@ class TwiProwl
       growl_params[:image] = file if file and File.exist?( file )
       Growl.notify( message, growl_params )
     rescue
-      debug $!.to_s
+      error "Error while growl notify #{$!}"
     end
     nil
   end
