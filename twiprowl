@@ -304,7 +304,10 @@ class TwiProwl
 
   def growl( icon, params={}, user = nil )
     growl_params = {}
-    growl_params[:sticky] = true if @@conf['Growl']['Sticky']
+    if @@conf['Growl'].key?( 'Sticky' ) and
+       params[:priority] >= @@conf['Growl'].key?( 'Sticky' )
+      growl_params[:sticky] = true
+    end
     growl_params[:title] = params[:event]
     growl_params[:priority] = params[:priority]
     message = params[:description]
@@ -612,7 +615,7 @@ class TwiProwl
                :event => "List membership",
                :description => desc,
                :priority => @membership.priority },
-               json['target_object']['user'] ) 
+               json['target_object']['user'] )
       end
     when "favorite"
       target = json['target_object']['user']['screen_name']
