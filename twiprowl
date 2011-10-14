@@ -17,6 +17,7 @@ require 'uri'
 require 'yaml'
 require 'logger'
 require 'pstore'
+require 'thread'
 begin
  require 'growl'
  require 'fileutils'
@@ -26,7 +27,7 @@ end
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "2.1"
+TWIPROWL_VERSION = "2.1.1"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 PIDFILE = File.join( ENV['HOME'], ".twiprowl.pid" )
@@ -666,11 +667,11 @@ class TwiProwl
   def stream_monitor
     debug "Checking with Streaming API."
     uri = URI::parse( STREAM_URL )
-    http = http_new( uri, @use_proxy )
-    request = Net::HTTP::Post.new( uri.request_uri )
-    params = { "with" => "followings" }
+    params = {}
     params.update( { "replies" => "all" } ) if @replies_all
-    request.set_form_data( params )
+    http = http_new( uri, @use_proxy )
+    request_uri = uri.request_uri + "?" + params.map do |k,v| "#{k}=#{v}"end.join("&")
+    request = Net::HTTP::Get.new( request_uri )
     request.oauth!( http, @consumer, @token )
     @stream_error_count = 0
     begin
