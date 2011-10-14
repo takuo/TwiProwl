@@ -604,7 +604,9 @@ class TwiProwl
     uri = URI::parse( STREAM_URL )
     http = http_new( uri, @use_proxy )
     request = Net::HTTP::Post.new( uri.request_uri )
-    request.set_form_data( { "replies" => "all" } ) if @replies_all
+    params = { "with" => "followings" }
+    params.update( { "replies" => "all" } ) if @replies_all
+    request.set_form_data( params )
     request.oauth!( http, @consumer, @token )
     @stream_error_count = 0
     begin
