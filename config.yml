@@ -2,8 +2,9 @@ LogDir: /tmp
 Debug: false
 Daemon: true
 # ProxyURI:
-# CAPath: /etc/ssl/certs                              # for Debian
+# CAPath: /etc/ssl/certs
 # CAFile: /opt/local/share/curl/curl-ca-bundle.crt    # for MacPorts
+# CAFile: /etc/ssl/certs/ca-certificates.crt          # for Debian
 
 Prowl:
  APIKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -22,7 +23,6 @@ Accounts:
 #   - "nma"   # Notify My Android for Android
 #   - "growl" # use growlnotify, it requires growl.gem and growlnotify
   User: example_username
-  RateLimitThreshold: 20
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
     Enable: true

@@ -1,6 +1,6 @@
-= Instruction =
+# Instruction 
 
-Version : 2.1
+Version : 2.2
 
 1. install some ruby libraries
 
@@ -10,26 +10,35 @@ Version : 2.1
   - hmac-ruby (deb or rubygems)
   - oauth (from rubygems)
 
-   $ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8
-   $ sudo gem install --no-rdoc --no-ri oauth
+```
+$ sudo apt-get install libopenssl-ruby1.8 libjson-ruby1.8 libhmac-ruby1.8
+```
+or
+```
+$ sudo gem install --no-rdoc --no-ri oauth
+```
 
  for Ruby >= 1.9.1 (recommend >= 1.9.2)
   - openssl
   - ruby-hmac >= 0.4.0 (from rubygems)
   - oauth (from rubygems)
 
-   $ sudo apt-get install rubygems1.9.1 libopenssl-ruby1.9.1
-   $ sudo gem1.9.1 install --no-rdoc --no-ri ruby-hmac oauth
+```
+$ sudo apt-get install rubygems1.9.1 libopenssl-ruby1.9.1
+```
+or
+```
+$ sudo gem1.9.1 install --no-rdoc --no-ri ruby-hmac oauth
+```
 
   If you want to use Growl, you should install growl.gem and growlnotify(1).
 
 2. copy config.yml to ~/.twiprowl.conf and edit it.
-
 3. run twiprowl
 
 
-= config.yml =
-
+## config.yml 
+```yaml
 LogDir: /tmp               # Log Directory
 Debug: false               # Debugging ouput to log.
 Daemon: true               # Daemon mode.
@@ -52,7 +61,6 @@ Accounts:
    - nma
    - growl
   User: <Twitter username>
-  RateLimitThreshold: 20   # polling limitter for basic API
   UseProxy: false          # <= use Prowl::ProxyURL
   Mentions:                # Event on Mentions
     Enable: false          # Enable, true or false
@@ -74,7 +82,7 @@ Accounts:
   Unfollowed:              # Event on Unfollowed, requires API rate
     Enable: false
     Priority: 0
-    Interval: 1800
+    Interval: 90
   Favorite:                # Event on Favorite/Unfavorite
     Enable: false
     Priority: 0
@@ -94,3 +102,4 @@ Accounts:
       Enable: true
  - 
   <Other account config here>
+```
