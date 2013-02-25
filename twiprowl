@@ -27,23 +27,21 @@ end
 $:.unshift( File::dirname( __FILE__ ) )
 require 'compat'
 
-TWIPROWL_VERSION = "2.1.1"
+TWIPROWL_VERSION = "2.2"
 $0 = "TwiProwl/#{TWIPROWL_VERSION}"
 
 PIDFILE = File.join( ENV['HOME'], ".twiprowl.pid" )
 LOGFILE = "twiprowl.log"
 
 class TwiProwl
-  API_BASE = "https://api.twitter.com/1/"
+  API_BASE = "https://api.twitter.com/1.1/"
 
   PROWL_API_ADD = "https://prowl.weks.net/publicapi/add"
   NMA_API_NOTIFY = "https://www.notifymyandroid.com/publicapi/notify"
 
   FOLLOWERS  = "#{API_BASE}followers/ids.json?screen_name=%s&cursor=%d"
-  XFOLLOWERS = "#{API_BASE}statuses/followers.json?screen_name=%s&cursor=%d"
-  USER_SHOW  = "#{API_BASE}users/show/%s.json"
-  RATE_LIMIT = "#{API_BASE}account/rate_limit_status.json"
-  STREAM_URL = "https://userstream.twitter.com/2/user.json"
+  USERS_LOOKUP = "#{API_BASE}users/lookup.json?user_id=%s"
+  STREAM_URL = "https://userstream.twitter.com/1.1/user.json"
 
   CONSUMER_KEY = 'nqjjOwQ207D1r3sPVgRhA'
   CONSUMER_SECRET = 'Al0rV0Ud4zskHXZLfoEecPNj18Rk0faOrbpcojDOtM'
@@ -54,6 +52,7 @@ class TwiProwl
                           :followers, :ignore, :negative, :thread, :time )
 
   attr_accessor :thread, :stream_thread
+  attr_reader   :followers
 
   @@mutex = Mutex.new
 
@@ -81,7 +80,6 @@ class TwiProwl
 
     @user = config['User']
     @use_proxy = config['UseProxy']
-    @threshold = config.key?( 'RateLimitThreshold' ) ? config['RateLimitThreshold'] : 20
 
     pdbfile = File.join( ENV['HOME'], ".twiprowl.pdb" )
     begin
@@ -90,7 +88,6 @@ class TwiProwl
       @pdb = PStore.new( pdbfile ) # ruby 1,8, but it's not thread safe
     end
     process_oauth( @user )
-    rate_limit_status( true )
     @shutdown = false
     @@mutex.synchronize do
       @pdb.transaction do
@@ -224,14 +221,6 @@ class TwiProwl
     return token
   end
 
-  def rate_limit_status( auth = false )
-    json, res = get_json( RATE_LIMIT, auth )
-    if res.code == "200"
-      @rate = json['remaining_hits']
-      @reset_at = Time.at( json['reset_time_in_seconds'] )
-    end
-  end
-
   def post_escape( string )
     string.gsub(/([^ a-zA-Z0-9_.-]+)/) do
       '%' + $1.unpack('H2' * $1.bytesize).join('%').upcase
@@ -341,7 +330,7 @@ class TwiProwl
     params[:apikey] = @@conf['Prowl']['APIKey']
     params[:description] = "#{icon} #{params[:description]}"
     begin
-      info "Notify with Prowl..."
+      info "Notify with Prowl... prio: #{params[:priority]}"
       uri = URI::parse( PROWL_API_ADD )
       http = http_new( uri  )
       request = Net::HTTP::Post.new( uri.request_uri )
@@ -370,33 +359,11 @@ class TwiProwl
     end
   end
 
-  def rate_limit_check( threshold, auth = true )
-    return true if threshold == 0
-    debug "Current RateLimit Remaining: #{@rate}"
-    return true if @rate > threshold
-    rate_limit_status( auth )
-    @rate > threshold
-  end
-
-  def get_json( url, auth = false )
+  def get_json( url, auth = true )
     uri = URI::parse( url )
     debug "Check #{uri.request_uri}"
     begin
-      if auth
-        res = @access_token.get( url )
-      else
-        http = http_new( uri, @use_proxy )
-        req = Net::HTTP::Get.new( uri.request_uri )
-        res = http.request( req )
-      end
-      if res['X-RateLimit-Remaining']
-        debug (auth ? "Auth" : "IP" ) + " RateLimit: %d/%d Reset at %s" % [
-                                                 res['X-RateLimit-Remaining'],
-                                                 res['X-RateLimit-Limit'],
-                                                 Time.at(res['X-RateLimit-Reset'].to_i).strftime( "%Y-%m-%d %H:%M:%S" )
-                                                ]
-       @rate = res['X-RateLimit-Remaining'].to_i if auth
-      end
+      res = @access_token.get( url )
     rescue
       error "HTTP Get Error: #{$!}"
       return [ nil, res ]
@@ -405,21 +372,34 @@ class TwiProwl
   end
 
   def correct_followers
-    cursor = -1
+    ids = @unfollowed.followers
     names = Hash.new
-    while cursor != 0
-      url = XFOLLOWERS % [ @user, cursor ]
-      json, res = get_json( url, true )
-      break if json.nil? or res.code != "200"
-      cursor = json['next_cursor']
-      json['users'].each do |user|
-        names[user["id_str"]] = user['screen_name']
-      end
+    num = 0
+    cur_names = []
+    @pdb.transaction do
+      cur_names = @pdb[:idnames]
     end
-    @@mutex.synchronize do
-      @pdb.transaction do
-        @pdb[:idnames].update( names )
+    while num < ids.size
+      user_id = ids[num..num+99]
+      user_id.reject! do |uid|
+        cur_names.include?(uid)
       end
+      if user_id.size > 0
+        url = USERS_LOOKUP % [ user_id.join(',') ]
+        json, res = get_json( url )
+        if res.code != "200"
+          json, res = get_json( url )
+        end
+        break if json.nil? or res.code != "200"
+        json.each do |user|
+          names[user["id_str"]] = user['screen_name']
+        end
+      end
+      num += 100
+    end
+    debug "names size: #{names.size}"
+    @pdb.transaction do
+      @pdb[:idnames].update( names )
     end
   end
 
@@ -427,13 +407,12 @@ class TwiProwl
   # checking followers
   def check_followers( checkinfo )
     return unless checkinfo.enable
-    return unless rate_limit_check( @threshold )
     cursor = -1
     users = Array.new
     while cursor != 0
       info "Checking: Followers: cursor=#{cursor}"
       url = FOLLOWERS % [ @user, cursor ]
-      json, res = get_json( url, true )
+      json, res = get_json( url )
       return if json.nil?
       cursor = json['next_cursor']
       users.concat( json['ids'].map{ |id| id.to_s } ) # .map { |u| "@#{u['screen_name']}" } )
@@ -449,18 +428,10 @@ class TwiProwl
           end
         end
         screen_names = Array.new
-        rate = 150
         diff.each do |id|
           screen_name = userdb[id.to_s]
           if screen_name.nil?
             screen_name = "ID:#{id}"
-            url = USER_SHOW % [ id.to_s ]
-            json = nil
-            if rate > @threshold
-              json, res = get_json( url, false ) # don't use auth API rate
-              rate = res['X-RateLimit-Remaining'] ? res['X-RateLimit-Remaining'].to_i : 0
-              screen_name = "@#{json['screen_name']}" if json
-            end 
           end
           screen_names.push( screen_name )
         end
@@ -672,6 +643,7 @@ class TwiProwl
     http = http_new( uri, @use_proxy )
     request_uri = uri.request_uri + "?" + params.map do |k,v| "#{k}=#{v}"end.join("&")
     request = Net::HTTP::Get.new( request_uri )
+    request['X-User-Agent'] = "TwiProwl/#{TWIPROWL_VERSION}"
     request.oauth!( http, @consumer, @token )
     @stream_error_count = 0
     begin
@@ -704,9 +676,9 @@ class TwiProwl
     return unless @unfollowed.enable
     info "Starting basic thread for \"#{@application}\"."
     @thread = Thread.new do 
-      correct_followers
       loop do
         check_followers( @unfollowed ) 
+        correct_followers
         sleep @unfollowed.interval 
       end # loop
     end
@@ -824,6 +796,7 @@ end
 
 accounts = Array.new
 config['Accounts'].each do |account|
+  next if account.has_key?('Enable') and account['Enable'] == false
   accounts.push( TwiProwl.new( config, account, logger ) )
 end
 
